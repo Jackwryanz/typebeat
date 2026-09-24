@@ -102,13 +102,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsCheckbox
                 {
                     LabelText = "Space to skip current word",
-                    TooltipText = "Press space in the middle of a word to give up on it and jump to the next one. Everything you had not typed of that word counts as a miss, so one bad character costs a word instead of your whole run. Applies from the next play.",
+                    TooltipText = "Press space in the middle of a word to jump to the next one. Backspace can reclaim the skipped letters. In Gatekeeper mode, space is rejected like any other wrong key. Applies from the next play.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord),
                 },
                 new SettingsCheckbox
                 {
                     LabelText = "Manual newlines",
-                    TooltipText = "Finish a line yourself: once its last character is typed, press space (at the end of the line) or enter to move on to the next one. Without it a finished line hands you over as soon as the next line is nearly due. You are never left behind - the song still takes you to the next line if you do not press, and a press made before the next line is nearly due is simply refused. Applies from the next play.",
+                    TooltipText = "After finishing a line, press Space or Enter, or start typing the next line, to move on. You can move early, but the next line stays grey and ignores typing until its entry window opens; an early letter must be pressed again. If you wait, the song moves you on when the push warning ends. With this off, finished lines advance automatically. Enter also skips an unfinished line. This setting has no effect with a pinned caret. Applies from the next play.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ManualNewlines),
                 },
                 new SettingsSlider<float>
@@ -136,6 +136,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     LabelText = "Show syllable markers",
                     TooltipText = "Mark the syllable boundaries inside a word the mapper timed syllable by syllable: a tiny triangle sits in the gap between the last character of one syllable and the first of the next, so you can see the subdivision coming. Display only, nothing about your score or your judgements changes.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyllableMarkers),
+                },
+                new SettingsCheckbox
+                {
+                    LabelText = "Show word pace colours",
+                    TooltipText = "Colour each word or subdivision by its speed relative to the previous one. 50% faster is fully red; 50% slower is fully green. Turn this off for a plain underline. Display only.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowPaceColours),
                 },
             };
         }

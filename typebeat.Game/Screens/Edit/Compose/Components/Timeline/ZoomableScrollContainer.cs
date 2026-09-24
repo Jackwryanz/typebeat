@@ -60,7 +60,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
                 RelativeSizeAxes = Axes.Y,
                 // We must hide content until SetupZoom is called.
                 // If not, a child component that relies on its DrawWidth (via RelativeSizeAxes) may see a very incorrect value
-                // momentarily, as noticed in the TimelineTickDisplay, which would render thousands of ticks incorrectly.
+                // momentarily, which could cause visual elements to render at incorrect positions.
                 Alpha = 0,
             });
 

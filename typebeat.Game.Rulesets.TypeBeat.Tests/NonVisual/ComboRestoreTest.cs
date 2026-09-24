@@ -231,9 +231,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(engine.ProcessKey(' ', 4000), Is.True);
             Assert.That(engine.CaretIndex, Is.EqualTo(5), "the space landed on the word gap");
 
-            // Back into the word (one press reclaims 'd' and erases the typo) and type it out.
-            Assert.That(engine.ProcessBackspace(), Is.True); // erases the typed space
-            Assert.That(engine.ProcessBackspace(), Is.True); // steps over 'd', erases the typo
+            // Undo the skip, then erase the typo and type the word out.
+            Assert.That(engine.ProcessBackspace(), Is.True); // reclaims 'd' and erases the space
+            Assert.That(engine.ProcessBackspace(), Is.True); // erases the typo
             Assert.That(engine.CaretIndex, Is.EqualTo(2));
 
             Assert.That(engine.ProcessKey('c', 3000), Is.True);

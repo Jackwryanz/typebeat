@@ -220,7 +220,6 @@ namespace typebeat.Game.Screens.Edit
         private Bindable<float> editorBackgroundDim;
         private Bindable<bool> editorShowStoryboard;
         private Bindable<bool> editorTimelineShowTimingChanges;
-        private Bindable<bool> editorTimelineShowTicks;
 
         /// <summary>
         /// This controls the opacity of components like the timelines, sidebars, etc.
@@ -341,7 +340,6 @@ namespace typebeat.Game.Screens.Edit
             editorBackgroundDim = config.GetBindable<float>(OsuSetting.EditorDim);
             editorShowStoryboard = config.GetBindable<bool>(OsuSetting.EditorShowStoryboard);
             editorTimelineShowTimingChanges = config.GetBindable<bool>(OsuSetting.EditorTimelineShowTimingChanges);
-            editorTimelineShowTicks = config.GetBindable<bool>(OsuSetting.EditorTimelineShowTicks);
 
             AddInternal(new OsuContextMenuContainer
             {
@@ -402,10 +400,6 @@ namespace typebeat.Game.Screens.Edit
                                                     new ToggleMenuItem(EditorStrings.TimelineShowTimingChanges)
                                                     {
                                                         State = { BindTarget = editorTimelineShowTimingChanges }
-                                                    },
-                                                    new ToggleMenuItem(EditorStrings.TimelineShowTicks)
-                                                    {
-                                                        State = { BindTarget = editorTimelineShowTicks }
                                                     },
                                                 ]
                                             },

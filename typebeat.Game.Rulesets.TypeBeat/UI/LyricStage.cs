@@ -44,6 +44,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // which is every bare test scene, must start on what the game actually ships.
         private readonly Bindable<bool> syllableMarkers = new Bindable<bool>(true);
 
+        // Display-only. Relative colours are on by default, including without a config.
+        private readonly Bindable<bool> showPaceColours = new Bindable<bool>(true);
+
         // The sync tint (TypeBeatRulesetSetting.ShowSyncMetric, off by default since backlog 251),
         // the same shape of display-only setting again. Initialised FALSE for the reason the two
         // above carry their own initialisers: a stage built with no config, which is every bare test
@@ -169,13 +172,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 runningCountable += c;
             }
 
-            // Precompute the UNDERLINE PACE HUE (backlog 228), immutable for the map's lifetime for
-            // the same reason the flashlight geometry above is, and computed HERE for one more: the
-            // percentiles are taken over the WHOLE map's word segments, never one line's, so a line
-            // that is uniformly brutal still glows red. This loader is the only place that holds
-            // every line at once before a display exists, which is what makes that structural rather
-            // than a convention (a display is handed colours; it cannot derive one).
-            var paceBands = UnderlinePace.BuildBands(lines);
+            // Compare each word/subdivision with its predecessor, even across line breaks. The
+            // checkbox only recolours the existing boxes; geometry and timing stay fixed.
+            var paceBands = UnderlinePace.BuildRelativeBands(lines);
 
             // The gameplay typing font is an accessibility pick (OpenDyslexic / a system font) applied
             // only to the lyric stack. Resolved once here: an unset/unknown/failed font stays null so
@@ -195,6 +194,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 displays[i] = d;
                 lineContainer.Add(d);
             }
+
+            // The checkbox applies during play without moving the lyric.
+            config?.BindWith(TypeBeatRulesetSetting.ShowPaceColours, showPaceColours);
+            showPaceColours.BindValueChanged(e =>
+            {
+                for (int i = 0; i < displays.Length; i++)
+                    displays[i].SetPaceColours(e.NewValue ? paceBands[i] : null);
+            }, true);
 
             // Carets are positioned via absolute points in this stage's top-left-origin
             // local space (from ToSpaceOfOtherDrawable), so they must anchor top-left.

@@ -133,6 +133,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         ShowSyllableMarkers,
 
         /// <summary>
+        /// Whether the sung underline colours each word or authored subdivision by its speed
+        /// relative to the preceding section. Display only.
+        /// </summary>
+        ShowPaceColours,
+
+        /// <summary>
         /// Whether the SYNC METRIC is shown at all: the gameplay HUD's "sync" readout
         /// (<see cref="UI.TypeBeatHudOverlay"/>) and the sync TINT that paints a correctly typed
         /// character on a brightness ramp by how in time the press was
@@ -274,6 +280,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
+            SetDefault(TypeBeatRulesetSetting.ShowPaceColours, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyncMetric, false);
         }
     }

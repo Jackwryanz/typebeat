@@ -298,7 +298,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// The reported run backlog 260 is about, as recorded frames: "ab" and its gap typed, a stray
         /// space at the HEAD of the long word (which gives the whole word up and is then judged on the
-        /// gap after it), the Ctrl+A collapse as the two BACKSPACE frames the gesture really emits,
+        /// gap after it), the Ctrl+A collapse as the one BACKSPACE frame the gesture emits,
         /// and the line typed out from the anchor. <paramref name="lossless"/> is the CONFIG frame's
         /// bit 11, taken through the LEGACY decode with the caret and space bits a live stack records,
         /// so the era arm is the one a stored .osr really produces.
@@ -343,15 +343,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // the press lands on the gap at cell 13.
             frames.Add(new TypeBeatReplayFrame(targets[3], ' '));
 
-            // The collapse: two erases, both stamped with the gesture's one timestamp, exactly as
-            // TypeBeatKeyHandler.eraseBackTo records them. They take the gap the skip landed on and
-            // then step over the whole abandoned run onto the gap in front of it, which is the
-            // selection's anchor.
-            frames.Add(new TypeBeatReplayFrame(targets[3], TypeBeatReplayFrame.BACKSPACE));
+            // One erase undoes the skip and its space, landing at the skipped word's head.
             frames.Add(new TypeBeatReplayFrame(targets[3], TypeBeatReplayFrame.BACKSPACE));
 
             // The retype, from the anchor to the end of the line.
-            for (int i = 2; i < text.Length; i++)
+            for (int i = 3; i < text.Length; i++)
                 frames.Add(new TypeBeatReplayFrame(targets[i], text[i]));
 
             return replay(frames);

@@ -188,7 +188,7 @@ namespace typebeat.Game.Screens.Select
                                             sortDropdown = new ShearedDropdown<SortMode>(SongSelectStrings.Sort)
                                             {
                                                 RelativeSizeAxes = Axes.X,
-                                                Items = Enum.GetValues<SortMode>(),
+                                                Items = Enum.GetValues<SortMode>().Where(mode => mode != SortMode.BPM),
                                             },
                                             Empty(),
                                             groupDropdown = new GroupModeDropdown(SongSelectStrings.Group)
@@ -224,7 +224,10 @@ namespace typebeat.Game.Screens.Select
             difficultyRangeSlider.LowerBound = config.GetBindable<double>(OsuSetting.DisplayStarsMinimum);
             difficultyRangeSlider.UpperBound = config.GetBindable<double>(OsuSetting.DisplayStarsMaximum);
             config.BindWith(OsuSetting.ShowConvertedBeatmaps, showConvertedBeatmapsButton.Active);
-            config.BindWith(OsuSetting.SongSelectSortingMode, sortDropdown.Current);
+            var savedSort = config.GetBindable<SortMode>(OsuSetting.SongSelectSortingMode);
+            if (savedSort.Value == SortMode.BPM)
+                savedSort.Value = SortMode.Title;
+            sortDropdown.Current.BindTo(savedSort);
 
             ruleset.BindValueChanged(_ => updateCriteria());
             mods.BindValueChanged(m =>
@@ -442,6 +445,9 @@ namespace typebeat.Game.Screens.Select
                 {
                     switch (item)
                     {
+                        case GroupMode.BPM:
+                            break;
+
                         default:
                             items.Add(new GroupModeDropdownItem(item, item.GetLocalisableDescription()));
                             break;

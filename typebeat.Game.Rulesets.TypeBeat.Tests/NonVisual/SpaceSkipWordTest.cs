@@ -378,12 +378,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Gatekeeper and space-skip are orthogonal: one decides what happens to a wrong LETTER, the
-        /// other lets you abandon a WORD, so a Gatekeeper player (who cannot type past a character
-        /// they keep missing) is if anything the one who needs the escape hatch most.
+        /// Gatekeeper rejects space at a letter even when Space to Skip is enabled. The rejected
+        /// space follows the same wrong-key path as any other incorrect input.
         /// </summary>
         [Test]
-        public void TheSkipWorksUnderGatekeeperToo()
+        public void GatekeeperRejectsSpaceInsteadOfSkipping()
         {
             var engine = new TypingEngine(catDog()) { SpaceSkipsWord = true, AllowWrongInput = false };
             engine.Update(1000);
@@ -392,22 +391,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.WrongKeyRejected += c => rejected = c;
 
             Assert.IsTrue(engine.ProcessKey('c', 1000));
-            Assert.IsTrue(engine.ProcessKey('q', 1600)); // wrong letter: rejected, caret holds on 'a'
+            Assert.IsTrue(engine.ProcessKey('q', 1600));
             Assert.AreEqual('q', rejected);
             Assert.AreEqual(1, engine.CaretIndex);
             Assert.AreEqual(1, engine.ConsecutiveWrongKeys);
 
             rejected = null;
-            Assert.IsTrue(engine.ProcessKey(' ', 2600)); // ...and space gets them out of it
+            Assert.IsTrue(engine.ProcessKey(' ', 2600));
 
-            Assert.IsNull(rejected);
-            Assert.AreEqual(CellState.Abandoned, engine.Lines[0].Cells[1].State);
-            Assert.AreEqual(CellState.Abandoned, engine.Lines[0].Cells[2].State);
-            Assert.AreEqual(4, engine.CaretIndex);
-            Assert.AreEqual(0, engine.BuildResults().Counts[JudgementType.Miss]);
-            // The gap really was typed, so it resets the mash-fail streak exactly as any accepted
-            // character does; the skip itself never touches it.
-            Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
+            Assert.AreEqual(' ', rejected);
+            Assert.AreEqual(1, engine.CaretIndex);
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[1].State);
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[2].State);
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[3].State);
+            Assert.AreEqual(2, engine.ConsecutiveWrongKeys);
+            Assert.IsFalse(engine.CanUndoWordSkip);
         }
 
         /// <summary>
@@ -435,11 +433,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         // -----------------------------------------------------------------------------------------
 
         /// <summary>
-        /// THE PROPERTY (backlog 167). From the word gap, ONE backspace re-enters the skipped word:
-        /// every phantom cell it steps over goes back to Untyped and the caret lands on the last
-        /// character actually typed, however many characters were given up. The step-over is
-        /// transparent for the same reason the one over auto-skipped punctuation is: nothing the
-        /// player put there is being erased.
+        /// From the next word, one backspace re-opens the abandoned letters and erases the typed
+        /// space. The caret lands on the first abandoned cell; the correctly typed prefix survives.
         /// </summary>
         [Test]
         public void OneBackspaceFromTheGapReOpensTheWholeSkippedWord()
@@ -453,18 +448,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var cells = engine.Lines[0].Cells;
 
-            // One press to take the typed space back off the gap (an ordinary erase), and one MORE
-            // to cross the whole abandoned run. The second is the one under test.
-            Assert.IsTrue(engine.ProcessBackspace());
-            Assert.AreEqual(3, engine.CaretIndex);
-            Assert.AreEqual(0, reclaims.Count, "the gap is a typed cell, not an abandoned one");
-
+            Assert.IsTrue(engine.CanUndoWordSkip);
             Assert.IsTrue(engine.ProcessBackspace());
 
-            Assert.AreEqual(0, engine.CaretIndex, "the caret lands on the last character actually typed");
+            Assert.AreEqual(1, engine.CaretIndex, "the caret lands on the first skipped character");
             Assert.AreEqual(CellState.Untyped, cells[1].State);
             Assert.AreEqual(CellState.Untyped, cells[2].State);
-            Assert.AreEqual(CellState.Untyped, cells[0].State, "the cell it landed on is erased, as any backspace erases it");
+            Assert.AreEqual(CellState.Untyped, cells[3].State, "the skip's space is erased too");
+            Assert.AreEqual(CellState.Correct, cells[0].State, "the correctly typed prefix is preserved");
+            Assert.IsFalse(engine.CanUndoWordSkip);
 
             Assert.AreEqual(1, reclaims.Count);
             Assert.AreEqual(new[] { 1, 2 }, reclaims[0].CellIndices);
@@ -483,12 +475,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(engine.ProcessKey('c', 1000));
             Assert.IsTrue(engine.ProcessKey(' ', 2600));
             Assert.IsTrue(engine.ProcessBackspace());
-            Assert.IsTrue(engine.ProcessBackspace());
 
             var judged = new List<CharJudgement>();
             engine.CharJudged += j => judged.Add(j);
 
-            Assert.IsTrue(engine.ProcessKey('c', 1000));      // inert: this cell was already earned
             Assert.IsTrue(engine.ProcessKey('a', a_target));  // the first abandoned cell, earned for real
             Assert.IsTrue(engine.ProcessKey('t', t_target));
 
@@ -497,16 +487,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(CellState.Correct, cells[2].State);
             Assert.AreEqual('a', cells[1].TypedChar);
 
-            Assert.AreEqual(3, judged.Count);
+            Assert.AreEqual(2, judged.Count);
+            Assert.AreEqual(JudgementType.Great, judged[0].Type);
+            Assert.IsTrue(judged[0].PointsAwarded > 0, "a reclaimed cell scores; an inert retype would not");
             Assert.AreEqual(JudgementType.Great, judged[1].Type);
-            Assert.IsTrue(judged[1].PointsAwarded > 0, "a reclaimed cell scores; an inert retype would not");
-            Assert.AreEqual(JudgementType.Great, judged[2].Type);
-            Assert.IsTrue(judged[2].PointsAwarded > 0);
+            Assert.IsTrue(judged[1].PointsAwarded > 0);
 
             var results = engine.BuildResults();
 
-            // Four cells typed correctly (c, the gap, a, t), each counted once: the inert retype of
-            // 'c' adds nothing, and the reclaimed cells are not double-counted either.
+            // Four cells typed correctly (c, the gap, a, t), each counted once. The reclaimed
+            // cells are not double-counted.
             Assert.AreEqual(4, results.Counts[JudgementType.Great]);
             Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
             Assert.AreEqual(1.0, results.Accuracy);
@@ -532,9 +522,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             reclaimed.ProcessKey(' ', 2600); // skip "at": one break, the streak of 1 snapshotted on 'a'
             Assert.AreEqual(0, restored);
 
-            reclaimed.ProcessBackspace();     // off the gap
-            reclaimed.ProcessBackspace();     // through the abandoned run, onto 'c'
-            reclaimed.ProcessKey('c', 1000);  // inert retype
+            reclaimed.ProcessBackspace();     // undo the skip and gap, preserving 'c'
             Assert.AreEqual(0, restored, "the erase alone restores nothing");
 
             reclaimed.ProcessKey('a', a_target); // the snapshot cell: the run resumes here
@@ -568,10 +556,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(engine.ProcessKey(' ', 1100)); // nothing typed at all: the whole of "cat" goes
             Assert.AreEqual(4, engine.CaretIndex);
 
-            Assert.IsTrue(engine.ProcessBackspace()); // erases the typed gap
-            Assert.AreEqual(3, engine.CaretIndex);
-
-            Assert.IsTrue(engine.ProcessBackspace(), "a reclaim IS a state change, so the press is not inert");
+            Assert.IsTrue(engine.ProcessBackspace(), "one press erases the gap and reclaims the word");
             Assert.AreEqual(0, engine.CaretIndex);
 
             var cells = engine.Lines[0].Cells;
@@ -621,8 +606,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(engine.ProcessKey('c', 1000));
             Assert.IsTrue(engine.ProcessKey(' ', 2600));
             Assert.IsTrue(engine.ProcessBackspace());
-            Assert.IsTrue(engine.ProcessBackspace());
-            Assert.IsTrue(engine.ProcessKey('c', 1000));
             Assert.IsTrue(engine.ProcessKey('a', a_target));
             Assert.IsTrue(engine.ProcessKey('t', t_target));
             Assert.IsTrue(engine.ProcessKey(' ', 3000));
@@ -666,7 +649,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(0, engine.ActiveLineIndex, "the line must still be open to come back into");
             Assert.IsTrue(engine.ProcessBackspace());
-            Assert.IsTrue(engine.ProcessKey(' ', 3100));
             Assert.IsTrue(engine.ProcessKey('c', 3100));
 
             Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[3].State);

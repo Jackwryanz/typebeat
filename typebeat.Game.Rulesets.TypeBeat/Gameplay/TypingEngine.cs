@@ -920,9 +920,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <item>The 13-in-a-row mash-fail streak (<see cref="ConsecutiveWrongKeys"/>) only ever
         /// accrued on the rejection path, so it is now a Gatekeeper-only guard. That is where it
         /// belongs: it exists to stop a masher farming a model that refuses wrong keys.</item>
-        /// <item>Backspace is gated on this flag at the INPUT layer (see <c>TypeBeatPlayfield</c>),
-        /// so it is now live by default and inert under Gatekeeper, which is the same rule as
-        /// before ("erasing exists only where an erasable char can land") resolving the other way.</item>
+        /// <item>Backspace is gated on this flag at the INPUT layer (see <c>TypeBeatPlayfield</c>).
+        /// Under Gatekeeper, an ordinary Backspace is inert; a retype selection can still be consumed.</item>
         /// <item>A wrong char typed through does NOT resolve its cell against the score processor
         /// (backlog 109). A miss is a character the line ran out of time on; a typo is a typo, and
         /// backspace makes it fixable, so the cell's result waits to see which of the two it turns
@@ -955,9 +954,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// every other unfixed typo.</para>
         ///
         /// <para><b>Abandoning is not giving up (backlog 167).</b> A skipped word is RE-TYPEABLE:
-        /// one backspace steps transparently back over the phantom cells, resetting them to
-        /// <see cref="CellState.Untyped"/> and landing the caret on the last character actually
-        /// typed, and re-typing them earns their ordinary judgements, their ordinary HP recovery and
+        /// one backspace resets the phantom cells and the following typed space to
+        /// <see cref="CellState.Untyped"/>, leaving the caret on the first abandoned character and
+        /// keeping the correctly typed prefix intact. Re-typing earns ordinary judgements, HP recovery and
         /// the streak the skip broke. The setting therefore means "I will come back to this" rather
         /// than "I give up on this word", which is the accepted consequence of making the cells
         /// earnable at all: a cell takes exactly ONE osu result, so applying a Miss at the skip is
@@ -975,12 +974,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// rather than a typo. It can only ever LOSE cells, never earn any, which is why it needs no
         /// score or pp multiplier despite being judgement-relevant.</para>
         ///
-        /// <para>Orthogonal to <see cref="AllowWrongInput"/>: Gatekeeper is about wrong LETTERS (is a
-        /// mistyped char written into the cell or refused), this is about abandoning a WORD, so both
-        /// combinations are meaningful and the skip works under Gatekeeper too. It is inert under
+        /// <para>Only active while <see cref="AllowWrongInput"/> is on. Gatekeeper rejects a space
+        /// inside a word just as it rejects any other wrong key. It is also inert under
         /// <see cref="MashingEnabled"/>, where a pressed space has already been rewritten into the
-        /// cell's expected char before this is reached: mashing makes every key the right key, so no
-        /// word can ever need abandoning.</para>
+        /// cell's expected char before this is reached.</para>
         ///
         /// <para>Judgement-relevant, so it travels in the replay CONFIG frame as bit 1 (see
         /// <see cref="Replays.TypeBeatReplayFrame"/>).</para>
@@ -2669,7 +2666,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // caret is inside a word"; a space pressed ON the word gap keeps its ordinary meaning and
             // never reaches this branch. Placed after the Mashing rewrite on purpose: mashing has
             // already turned the press into the expected char, so this is unreachable under it.
-            if (SpaceSkipsWord && c == ' ' && cell.Expected != ' ')
+            if (SpaceSkipsWord && AllowWrongInput && c == ' ' && cell.Expected != ' ')
             {
                 caretBeforeSkip = caretIndex;
                 skipLeftAClaimOutstanding = skipCurrentWord(time);
@@ -2769,10 +2766,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // means to leave sitting in a lyric, so it falls through to the ordinary non-match path
             // below and is judged exactly as a wrong key on any other cell would be. The strict
             // rejection is the only outcome available to it, because neither allow-wrong-input path
-            // will type a space through (c != ' ' guards both arms). Unless SpaceSkipsWord is on, in
-            // which case the space never reaches here at all: it was consumed by the word skip above,
-            // freestyle slot included (a freestyle cell is a lyric character like any other, so a
-            // space pressed on one is the player abandoning the word it sits in).
+            // will type a space through (c != ' ' guards both arms). With SpaceSkipsWord on and
+            // wrong input allowed, the space was consumed by the word skip above. Gatekeeper still
+            // reaches the strict rejection below, including on a freestyle slot.
             // Literate mod folds nothing: the typed char must match the target's exact case.
             // Default gameplay is case-insensitive (both sides lower-cased through Fold).
             bool matched = (cell.IsFreestyle && c != ' ')
@@ -2799,8 +2795,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // character, so it is treated as one, no differently from a wrong letter (the cell
                 // still renders its own expected character in the error red, since CellGlyph
                 // substitutes the typed char for GAPS only, which is what makes an invisible red space
-                // a non-problem). With SpaceSkipsWord ON the same press never arrives here: the skip
-                // gate above consumed it.
+                // a non-problem). With SpaceSkipsWord ON and wrong input allowed, the skip gate
+                // above consumed it; under Gatekeeper the press falls through to rejection.
                 //
                 // A FREESTYLE slot keeps refusing the space key under every arm. Its promise is "any
                 // character except the word-advance key" (backlog 50) and it has no expected glyph to
@@ -3855,9 +3851,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="CellState.Untyped"/> for the same reason: retyping them re-earns them).
         /// Returns false if nothing to erase. The erased keypress stays in the accuracy counts.
         ///
-        /// <para>Both step-overs are transparent because neither cell holds anything the player put
-        /// there, so neither is an erase. That is what makes ONE press re-enter a skipped word and
-        /// land on the last character actually typed, however many characters were given up.</para>
+        /// <para>A word skip and the space it typed on the following gap are undone together. The
+        /// abandoned cells are re-opened and the caret returns to the first one, leaving every
+        /// correctly typed character in the word intact. The same rule applies at the end of a line,
+        /// where a skipped final word has no following gap.</para>
         ///
         /// <para>The one case that does not erase BEHIND the caret is a typo the caret is parked ON,
         /// which only <see cref="StrictSpaces"/> can produce (backlog 184): that cell is cleared in
@@ -3954,6 +3951,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return true;
             }
 
+            if (tryUndoWordSkip(cells))
+                return true;
+
             // Find the nearest cell behind the caret holding something the player typed, stepping
             // over the two transparent states (scan first, mutate after).
             int target = caretIndex - 1;
@@ -4018,6 +4018,81 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (erasedTypo)
                 raise(TypoErased);
 
+            return true;
+        }
+
+        /// <summary>Whether one backspace can undo the word skip adjacent to the caret.</summary>
+        public bool CanUndoWordSkip => adjacentSkippedWord() != null;
+
+        private (int firstAbandoned, int wordEnd, int gapIndex)? adjacentSkippedWord()
+        {
+            if (isFinished || activeLineIndex == -1)
+                return null;
+
+            var cells = lines[activeLineIndex].Cells;
+            int wordEnd;
+            int gapIndex = -1;
+
+            if (caretIndex < cells.Count && isWordGap(cells[caretIndex]))
+                wordEnd = caretIndex;
+            else if (caretIndex > 0 && isWordGap(cells[caretIndex - 1]))
+                wordEnd = gapIndex = caretIndex - 1;
+            else if (caretIndex == cells.Count)
+                wordEnd = caretIndex;
+            else
+                return null;
+
+            int wordStart = wordEnd;
+
+            while (wordStart > 0 && !isWordGap(cells[wordStart - 1]))
+                wordStart--;
+
+            for (int i = wordStart; i < wordEnd; i++)
+            {
+                if (cells[i].State == CellState.Abandoned)
+                    return (i, wordEnd, gapIndex);
+            }
+
+            return null;
+        }
+
+        private bool tryUndoWordSkip(IReadOnlyList<TypingCell> cells)
+        {
+            var skip = adjacentSkippedWord();
+
+            if (skip == null)
+                return false;
+
+            var (firstAbandoned, wordEnd, gapIndex) = skip.Value;
+            var reclaimed = new List<int>();
+
+            for (int i = firstAbandoned; i < wordEnd; i++)
+            {
+                if (cells[i].State == CellState.Abandoned)
+                {
+                    cells[i].State = CellState.Untyped;
+                    reclaimed.Add(i);
+                }
+                else if (cells[i].State == CellState.AutoSkipped)
+                    cells[i].State = CellState.Untyped;
+            }
+
+            if (gapIndex >= 0)
+            {
+                var gap = cells[gapIndex];
+
+                // A skip can also step over an already-spoiled gap. In that case this space did
+                // not type the gap, so keep the earlier typo for its own backspace to erase.
+                if (gap.State == CellState.Correct)
+                {
+                    gap.State = CellState.Untyped;
+                    gap.TypedChar = null;
+                    gap.JudgedDelta = null;
+                }
+            }
+
+            caretIndex = firstAbandoned;
+            raise(AbandonReclaimed, new AbandonedCells(activeLineIndex, reclaimed));
             return true;
         }
 
@@ -4095,11 +4170,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="CaretIndex"/> itself, which makes the composed gesture a no-op: it never calls
         /// the engine and therefore never records anything.</para>
         ///
-        /// <para>The target is a FLOOR, not a promise: a single <see cref="ProcessBackspace"/> steps
-        /// transparently back over auto-skipped and abandoned cells, so one press over a word that
-        /// was entirely given up to a word skip can land the caret further back than this, exactly as
-        /// a plain backspace there would. That is the existing reclaim behaviour and is deliberately
-        /// not fought here.</para>
+        /// <para>The target is a floor: an erase can cross auto-skipped cells while moving back.
+        /// Undoing a word skip stops at the first abandoned cell, preserving typed cells before it.</para>
         ///
         /// <para>Answers <see cref="CaretIndex"/> unchanged when no line is active or the run has
         /// finished, so the caller needs no second guard.</para>
@@ -4142,8 +4214,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// through and not yet backspaced away. <see cref="CellState.Abandoned"/> is a character a
         /// word skip gave up (backlog 167, see <see cref="SpaceSkipsWord"/>), which since backlog 244
         /// anchors a selection exactly as a typo does: an abandoned cell is precisely a cell the
-        /// player still has to type, the reclaim already runs through
-        /// <see cref="ProcessBackspace"/>'s transparent step-over, and re-typing the cell REDEEMS the
+        /// player still has to type, backspace re-opens it, and re-typing the cell REDEEMS the
         /// combo claim the skip took against it (backlog 140's machinery, and backlog 243's fix to
         /// who owns that claim). Without this the one mistake the game hands a player in a single
         /// keystroke was the one mistake the one-keystroke correction refused to reach.</para>
@@ -4167,10 +4238,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// ordinary lyric character (a typo or an abandoned cell alike) that is its WORD's first cell
         /// (walk back to the gap before it), which for a skipped word is its head: the mass backspace
         /// the caller composes reclaims the abandoned tail on its way past, exactly as a plain
-        /// backspace there does. Since backlog 260 that answer is then widened by one more step when
-        /// the head itself is a cell NOBODY TYPED (a word given up whole), because the composed
-        /// backspace cannot stop on such a cell and would otherwise end up behind its own selection:
-        /// see the walk at the bottom of this getter. For a WORD GAP holding a typo (possible since backlog 181, see
+        /// backspace there does. For a WORD GAP holding a typo (possible since backlog 181, see
         /// <see cref="WrongInputOnWordGaps"/>) the gap IS the cell to retype and it belongs to no
         /// word, so the selection starts on the gap itself; walking back from it would swallow the
         /// perfectly good word in front of it for nothing.</para>
@@ -4215,31 +4283,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 while (anchor > 0 && !isWordGap(cells[anchor - 1]))
                     anchor--;
 
-                // ...and then back to a cell the mass backspace can actually LAND on (backlog 260).
-                // The collapse is a run of ordinary ProcessBackspace calls, and one of those steps
-                // TRANSPARENTLY over abandoned and auto-skipped cells to erase the nearest cell the
-                // player typed: it cannot stop on a cell nobody typed. So when the whole word was
-                // given up (a space struck at its head), the word's own first cell is not a stopping
-                // place, the run carries on to the gap in front of it, and a selection anchored on the
-                // word head was one cell short of where its own collapse ends up. The caret then sat
-                // BEHIND the anchor on a gap that had already been judged, and the next letter of the
-                // retype landed on it as a fresh typo: one keystroke of correction manufacturing a
-                // mistake of its own.
-                //
-                // Widening the SELECTION rather than bounding the backspace is what keeps this inside
-                // the input layer with no era of its own. A bounded erase would make the live run
-                // stop somewhere its own recorded BACKSPACE frames cannot, since playback feeds them
-                // through the plain call, and the replay would then diverge from the run it stores.
-                // The extra cell costs the player one keystroke and nothing else: a gap that was
-                // already judged retypes inert (see FirstCorrectDelta), so no count, no score and no
-                // combo moves, and the highlight now shows exactly the run the collapse will clear.
-                //
-                // The same walk the backspace makes, so the two cannot disagree: over the transparent
-                // states only, stopping at the line's head. A word gap is never in either state
-                // (skipCurrentWord scans strictly between the gaps), so this steps back at most out
-                // of the abandoned word and onto the gap before it.
-                while (anchor > 0 && (cells[anchor].State == CellState.Abandoned || cells[anchor].State == CellState.AutoSkipped))
-                    anchor--;
+                // A word can begin with punctuation that typing auto-skips. The first typeable
+                // cell is the earliest place a backspace can stop without crossing the prior gap.
+                while (anchor < mistake && !cells[anchor].IsTypeable)
+                    anchor++;
 
                 return anchor;
             }

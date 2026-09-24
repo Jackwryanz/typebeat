@@ -71,8 +71,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>
         /// The SLOW end of the underline's PACE HUE (backlog 228, see
-        /// <see cref="UnderlinePace"/>): the colour a word segment sitting in the map's slowest
-        /// quartile shades towards. The fast end deliberately reuses <see cref="ErrorChar"/> rather
+        /// <see cref="UnderlinePace"/>): the colour a word segment slower than its predecessor
+        /// shades towards. The fast end deliberately reuses <see cref="ErrorChar"/> rather
         /// than adding a second red, so the palette gains exactly one colour for this feature.
         ///
         /// <para>#6ed26e is a clean medium green picked on ONE constraint above all others: it must

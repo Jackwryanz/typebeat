@@ -74,15 +74,6 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         private bool trackWasPlaying;
 
         /// <summary>
-        /// Whether the last seek this timeline drove was DISPLACED by <see cref="MagnetToBeatGrid"/>,
-        /// i.e. the caret is being held on a grid line rather than sitting where the cursor points.
-        /// Always false while <see cref="SnapDragSeekToBeat"/> is idle. Read by
-        /// <see cref="scrollToTrackTime"/>, which must not write that displacement back into the
-        /// scroll position.
-        /// </summary>
-        private bool magnetHoldsCaret;
-
-        /// <summary>
         /// The timeline zoom level at a 1x zoom scale.
         /// </summary>
         private float defaultTimelineZoom;
@@ -99,13 +90,10 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
 
         private double appliedWaveformGain = -1;
 
-        private TimelineTickDisplay ticks = null!;
-
         private TimelineTimingChangeDisplay controlPoints = null!;
 
         private Bindable<float> waveformOpacity = null!;
         private Bindable<bool> controlPointsVisible = null!;
-        private Bindable<bool> ticksVisible = null!;
 
         private float? waveformOpacityOverride;
 
@@ -125,33 +113,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
             }
         }
 
-        private float tickAlpha = 1;
-
-        /// <summary>
-        /// Peak alpha of the beat tick display (1 by default). The user's ticks-visible setting
-        /// still gates whether ticks show at all.
-        /// </summary>
-        public float TickAlpha
-        {
-            get => tickAlpha;
-            set
-            {
-                tickAlpha = value;
-
-                if (IsLoaded)
-                    ticksVisible.TriggerChange();
-            }
-        }
-
         private double trackLengthForZoom;
-
-        /// <summary>
-        /// When armed, dragging this timeline magnets the seek to the nearest beat-grid line
-        /// (see <see cref="MagnetToBeatGrid"/>). Off by default; a screen that wants the snap binds
-        /// this to its own toggle. Nothing else on the timeline is affected, and the scroll itself
-        /// stays continuous: only the time the drag SEEKS to is pulled onto the grid.
-        /// </summary>
-        public readonly BindableBool SnapDragSeekToBeat = new BindableBool();
 
         public Timeline(Drawable userContent)
         {
@@ -182,12 +144,11 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
 
             AddRange(new Drawable[]
             {
-                ticks = new TimelineTickDisplay(),
                 new Box
                 {
                     Name = "zero marker",
                     RelativeSizeAxes = Axes.Y,
-                    Width = TimelineTickDisplay.TICK_WIDTH / 2,
+                    Width = 1.5f,
                     Origin = Anchor.TopCentre,
                     Colour = colourProvider.Background1,
                 },
@@ -222,7 +183,6 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
                             },
                         },
                         centreMarker.CreateProxy(),
-                        ticks.CreateProxy(),
                         userContent,
                     }
                 },
@@ -230,7 +190,6 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
 
             waveformOpacity = config.GetBindable<float>(OsuSetting.EditorWaveformOpacity);
             controlPointsVisible = config.GetBindable<bool>(OsuSetting.EditorTimelineShowTimingChanges);
-            ticksVisible = config.GetBindable<bool>(OsuSetting.EditorTimelineShowTicks);
 
             editorClock.TrackChanged += updateWaveform;
             updateWaveform();
@@ -284,8 +243,6 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
             base.LoadComplete();
 
             waveformOpacity.BindValueChanged(_ => updateWaveformOpacity(), true);
-
-            ticksVisible.BindValueChanged(visible => ticks.FadeTo(visible.NewValue ? tickAlpha : 0, 200, Easing.OutQuint), true);
 
             controlPointsVisible.BindValueChanged(visible =>
             {
@@ -373,31 +330,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
 
         private void seekTrackToCurrent()
         {
-            // Both callers are the timeline's own scroll driving the clock: the live drag, and the
-            // inertia that settles after the user lets go. Magneting both is what makes a flick land
-            // on the grid line it stops next to instead of sliding back off it.
-            double raw = TimeAtPosition(Current);
-            double target = MagnetToBeatGrid(raw);
-
-            magnetHoldsCaret = target != raw;
-
-            editorClock.Seek(Math.Min(editorClock.TrackLength, target));
-        }
-
-        /// <summary>
-        /// Where a drag-seek to <paramref name="rawTime"/> actually lands: with
-        /// <see cref="SnapDragSeekToBeat"/> armed, the nearest beat-grid line (the white/red/blue
-        /// ticks, i.e. the current timing point at the current beat divisor) whenever it is within
-        /// <see cref="EditorSnapMagnet.RADIUS_PX"/> of the cursor, otherwise the raw time.
-        /// </summary>
-        public double MagnetToBeatGrid(double rawTime)
-        {
-            if (!SnapDragSeekToBeat.Value || Content.DrawWidth <= 0 || editorClock.TrackLength <= 0)
-                return rawTime;
-
-            double msPerPixel = editorClock.TrackLength / Content.DrawWidth;
-
-            return EditorSnapMagnet.Magnet(rawTime, beatSnapProvider.SnapTime(rawTime), EditorSnapMagnet.RADIUS_PX * msPerPixel);
+            editorClock.Seek(Math.Min(editorClock.TrackLength, TimeAtPosition(Current)));
         }
 
         private void scrollToTrackTime()
@@ -409,21 +342,6 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
             // we want to ensure the clock is always stopped during drags to avoid weird audio playback.
             if (handlingDragInput)
                 editorClock.Stop();
-
-            // The scroll and the clock are a round trip through each other every frame, and without
-            // the magnet it is the identity: this writes back exactly what seekTrackToCurrent read.
-            // A magneted seek is NOT the identity, so writing its result back would drag the scroll
-            // onto the grid line as well, erasing the raw travel the user has accumulated since the
-            // magnet took hold. A mouse only reports a delta on the frames it actually moves, so the
-            // erase happens between one delta and the next and the cursor can never reach the radius
-            // it has to reach to escape: the caret sits trapped on the line until a single frame's
-            // delta clears the radius outright, which lands it in the next line's pull instead.
-            // So while the drag is live the RAW cursor position stays the source of truth and the
-            // scroll is left exactly where the user put it. Only the magnet's own displacement is
-            // suppressed here, so with the toggle idle this is the old behaviour untouched, and once
-            // the drag is released the settle is free to bring the view to rest on the line.
-            if (magnetHoldsCaret && IsDragged)
-                return;
 
             float position = PositionAtTime(editorClock.CurrentTime);
             ScrollTo(position, false);
@@ -454,10 +372,6 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         private void endUserDrag()
         {
             handlingDragInput = false;
-
-            // Only ever true for the gesture that set it: from here the settle is what decides where
-            // the view comes to rest, and it should come to rest on the line the caret is held on.
-            magnetHoldsCaret = false;
 
             if (trackWasPlaying)
                 editorClock.Start();

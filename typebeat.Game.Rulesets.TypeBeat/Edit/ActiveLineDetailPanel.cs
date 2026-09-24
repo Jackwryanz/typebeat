@@ -81,10 +81,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             // the button was dropped to declutter the row.
                             // Copy/paste timing stays on the standard ^C/^V hotkeys
                             // (LyricComposeScreen.Copy/Paste); the buttons were dropped.
-                            // The line row carries six controls rather than the word row's four, so
-                            // its action buttons are a little narrower: at a 1366-wide window the
-                            // panel has room for exactly this, and the mode toggles must not be the
-                            // thing that gets squeezed off the right edge.
+                            // Keep line actions beside the caret magnet.
                             actionRow("line", new[]
                             {
                                 actionButton("add @ playhead", addAtPlayhead, line_button_width),
@@ -93,10 +90,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 actionButton("delete line", deleteLine, line_button_width),
                             }, new Drawable[]
                             {
-                                // The two drag magnets, in the top-right corner: they are modes,
-                                // not actions, so they are kept well away from the action group.
+                                // The caret magnet is a mode, not a line action.
                                 new SnapToggleButton("snap to caret", state.SnapToCaret),
-                                new SnapToggleButton("snap to grid", state.SnapToGrid),
                             }),
                         },
                         new Drawable[]

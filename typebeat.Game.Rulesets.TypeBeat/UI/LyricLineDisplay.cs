@@ -77,9 +77,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// is measured from a pool glyph at load, so nothing about the effect can move the line.</para>
     ///
     /// <para>The sweep's TRACK carries the PACE HUE (backlog 228, see <see cref="buildPaceTracks"/>
-    /// and <see cref="UnderlinePace"/>): one band per word, tinted red where the map's playhead is
-    /// about to run fast and green where it opens up, off percentiles taken over the whole map. The
-    /// colours are map constants handed in at construction; nothing here computes one.</para>
+    /// and <see cref="UnderlinePace"/>): one band per word or authored subdivision, tinted red
+    /// where the map's playhead speeds up and green where it slows down. The stage supplies the
+    /// colours; nothing here computes one.</para>
     ///
     /// <para>An opt-in SPACE ERROR DOT (see <see cref="ComputeSpaceErrorDots"/>) marks a word left
     /// carrying an error once the player has spaced past it. It is an overlay drawable per word gap,
@@ -109,9 +109,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private Container content = null!;
 
         // --- The sung-sweep underline ---
-        // The TRACK is the faint full-line rail; since backlog 228 it is one Box per WORD BAND
-        // rather than one Box for the whole line, so each band can carry the pace hue its map-wide
-        // percentile earned (see UnderlinePace). The bands tile the line exactly, so their union is
+        // The TRACK is the faint full-line rail; it is one Box per pace band
+        // rather than one Box for the whole line, so each band can carry the selected pace hue
+        // (see UnderlinePace). The bands tile the line exactly, so their union is
         // still the full-width rail the layout has always pinned itself on, and a display built with
         // no bands gets a single neutral band covering the whole line: byte-identical to pre-228.
         private Box[] sweepTracks = Array.Empty<Box>();
@@ -254,12 +254,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private int sungSyllable = -1;
 
         /// <summary>
-        /// This line's slice of the map-wide PACE HUE (backlog 228), or null for no hue at all (one
-        /// neutral rail, exactly the pre-228 underline). Never computed here: the distribution is a
-        /// whole-map fact, so the owning stage builds it once and hands each display its own bands
-        /// (see <see cref="UnderlinePace.BuildBands"/>).
+        /// This line's pace-band geometry and initial relative colours. The owning stage computes
+        /// the colours and can select another mode without moving the bands.
         /// </summary>
         private readonly IReadOnlyList<PaceBand>? paceBands;
+        private IReadOnlyList<PaceBand>? selectedPaceBands;
 
         public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null,
                                 IReadOnlyList<PaceBand>? paceBands = null)
@@ -268,6 +267,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             requestedFontSize = fontSize;
             this.fontFamily = fontFamily;
             this.paceBands = paceBands;
+            selectedPaceBands = paceBands;
             AutoSizeAxes = Axes.Both;
         }
 
@@ -377,11 +377,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>
         /// The sung-sweep TRACK, as one Box per PACE BAND (backlog 228): the faint rail under the
-        /// glyphs, cut at word boundaries so each word's slice can wear the hue its map-wide
-        /// percentile rank earned (see <see cref="UnderlinePace"/>). Built here at load, the way the
+        /// glyphs, cut at word and authored-subdivision boundaries so each slice can wear its
+        /// selected pace colour (see <see cref="UnderlinePace"/>). Built here at load, the way the
         /// space error dots are, and sized/positioned by <see cref="measureAndLayout"/> off the same
-        /// measured cell edges; the colours themselves are map constants handed in at construction
-        /// and are never recomputed, least of all per frame.
+        /// measured cell edges; the owning stage supplies the colours and can change them live.
         ///
         /// <para>Three properties of the OLD single track are preserved deliberately, because
         /// dropping any of them breaks something that is not about colour:</para>
@@ -438,6 +437,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     AlwaysPresent = true,
                 };
             }
+
+            applyPaceColours();
+        }
+
+        /// <summary>
+        /// Change the pace colours without rebuilding the underline. All modes use the same band
+        /// boundaries; null selects the plain neutral rail. Safe before the display has loaded.
+        /// </summary>
+        public void SetPaceColours(IReadOnlyList<PaceBand>? bands)
+        {
+            selectedPaceBands = bands;
+            applyPaceColours();
+        }
+
+        private void applyPaceColours()
+        {
+            for (int i = 0; i < sweepTracks.Length; i++)
+                sweepTracks[i].Colour = selectedPaceBands?.Count == sweepTracks.Length
+                    ? selectedPaceBands[i].Colour
+                    : UnderlinePace.NeutralColour;
         }
 
         /// <summary>

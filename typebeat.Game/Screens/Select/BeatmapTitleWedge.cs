@@ -64,7 +64,6 @@ namespace typebeat.Game.Screens.Select
         private StatisticPlayCount playCount = null!;
         private FavouriteButton favouriteButton = null!;
         private Statistic lengthStatistic = null!;
-        private Statistic bpmStatistic = null!;
 
         [Resolved]
         private ISongSelect? songSelect { get; set; }
@@ -159,11 +158,6 @@ namespace typebeat.Game.Screens.Select
                                 },
                                 favouriteButton = new FavouriteButton(),
                                 lengthStatistic = new Statistic(OsuIcon.Clock),
-                                bpmStatistic = new Statistic(OsuIcon.Metronome)
-                                {
-                                    TooltipText = BeatmapsetsStrings.ShowStatsBpm,
-                                    Margin = new MarginPadding { Left = 5f },
-                                },
                             },
                         }),
                         new ShearAligningWrapper(new Container
@@ -192,10 +186,10 @@ namespace typebeat.Game.Screens.Select
             {
                 settingChangeTracker?.Dispose();
 
-                updateLengthAndBpmStatistics();
+                updateLengthStatistic();
 
                 settingChangeTracker = new ModSettingChangeTracker(m.NewValue);
-                settingChangeTracker.SettingChanged += _ => updateLengthAndBpmStatistics();
+                settingChangeTracker.SettingChanged += _ => updateLengthStatistic();
             });
 
             updateDisplay();
@@ -243,18 +237,18 @@ namespace typebeat.Game.Screens.Select
             artistLink.Action = () => songSelect?.Search(artistText.GetPreferred(localisation.CurrentParameters.Value.PreferOriginalScript));
             DisplayedArtist = artistText.ToString();
 
-            updateLengthAndBpmStatistics();
+            updateLengthStatistic();
             updateOnlineDisplay();
         }
 
-        private CancellationTokenSource? lengthBpmCancellationSource;
+        private CancellationTokenSource? lengthCancellationSource;
 
-        private void updateLengthAndBpmStatistics()
+        private void updateLengthStatistic()
         {
-            lengthBpmCancellationSource?.Cancel();
-            lengthBpmCancellationSource = new CancellationTokenSource();
+            lengthCancellationSource?.Cancel();
+            lengthCancellationSource = new CancellationTokenSource();
 
-            var token = lengthBpmCancellationSource.Token;
+            var token = lengthCancellationSource.Token;
 
             Task.Run(() =>
             {
@@ -263,10 +257,6 @@ namespace typebeat.Game.Screens.Select
                 var beatmap = working.Value.Beatmap;
 
                 double rate = ModUtils.CalculateRateWithMods(mods.Value);
-
-                int bpmMax = FormatUtils.RoundBPM(beatmap.ControlPointInfo.BPMMaximum, rate);
-                int bpmMin = FormatUtils.RoundBPM(beatmap.ControlPointInfo.BPMMinimum, rate);
-                int mostCommonBPM = FormatUtils.RoundBPM(60000 / beatmap.GetMostCommonBeatLength(), rate);
 
                 double drainLength = Math.Round(beatmap.CalculateDrainLength() / rate);
                 double hitLength = Math.Round(beatmapInfo.Length / rate);
@@ -278,10 +268,6 @@ namespace typebeat.Game.Screens.Select
 
                     lengthStatistic.Text = hitLength.ToFormattedDuration();
                     lengthStatistic.TooltipText = BeatmapsetsStrings.ShowStatsTotalLength(drainLength.ToFormattedDuration());
-
-                    bpmStatistic.Text = bpmMin == bpmMax
-                        ? $"{bpmMin}"
-                        : LocalisableString.Interpolate($"{bpmMin}-{bpmMax} ({SongSelectStrings.MostlyBPM(mostCommonBPM)})");
                 });
             }, token);
         }

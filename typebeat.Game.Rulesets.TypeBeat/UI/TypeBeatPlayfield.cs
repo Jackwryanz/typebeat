@@ -808,12 +808,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <see cref="TypingEngine.ProcessKey"/> path, a plain backspace collapses it and types
         /// nothing.</para>
         ///
-        /// <para>Backspace is live ONLY in allow-wrong-input mode, the only model where a wrong char
-        /// lands in a cell and is thus worth erasing; under Gatekeeper the key is swallowed and does
-        /// nothing at all. Since backlog 107 allow-wrong-input is the default, so backspace is live
-        /// by default: the predicate is unchanged, it simply resolves the other way now. Replay
-        /// playback is unaffected: recorded backspace frames go straight to the engine (see
-        /// <see cref="EngineTicker"/>).</para>
+        /// <para>Backspace is live in allow-wrong-input mode. Under Gatekeeper it can still consume
+        /// a retype selection. Replay playback feeds recorded backspace frames straight to the
+        /// engine (see <see cref="EngineTicker"/>).</para>
         ///
         /// <para>Replay determinism: every keystroke is stamped with the ROUNDED (integral ms)
         /// lyric time, the engine is advanced to that exact time first, and every EFFECTIVE input
@@ -981,30 +978,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 if (gesture == TypeBeatAction.EraseWord || (gesture == null && e.Key == Key.BackSpace))
                 {
-                    // Erasing only ever has something to undo in ALLOW-WRONG-INPUT mode: that is the
-                    // one model where a wrong char lands in a cell. Under GATEKEEPER a wrong
-                    // key is rejected outright, so nothing erasable is ever written, and re-typing an
-                    // already-correct cell (freestyle cells included, whose press is a CORRECT hit) is
-                    // scoring-inert. Backspace is therefore inert-by-design under Gatekeeper, and is
-                    // gated off entirely: no engine call, nothing recorded. Gated at the INPUT layer,
-                    // not in the engine, so the JS port of TypingEngine stays byte-compatible.
-                    //
-                    // The gate reads the ENGINE flag, the same value the replay CONFIG frame carries,
-                    // so it can never disagree with the model the play is judged under. It applies to
-                    // LIVE input only: replay playback feeds recorded backspace frames straight into
-                    // the engine (see EngineTicker.applyFrame), so an old replay still plays back
-                    // exactly as recorded.
-                    //
-                    // The key is still swallowed rather than passed on: backspace carries a global
-                    // binding (GlobalAction.DeselectAllMods) and editor semantics that gameplay must
-                    // not start triggering just because the setting is off.
-                    //
-                    // The ONE thing an erase key does under Gatekeeper is consume a live SELECTION
-                    // (backlog 244), and that is not a widening of the erase: the selection is a
-                    // mass backspace the player has already asked for with Ctrl+A, over cells a word
-                    // skip abandoned (the only kind Gatekeeper can produce), so refusing here would
-                    // offer a selection the erase key alone could not take back. Nothing else about
-                    // this arm opens: with no selection live the key is still inert.
+                    // Gatekeeper rejects wrong keys, including a space inside a word, so a plain
+                    // backspace has nothing to undo. A retype selection can still be consumed.
                     if (!engine.AllowWrongInput && playfield.CurrentRetypeSelection is null)
                         return true;
 
@@ -1030,15 +1005,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (gesture == TypeBeatAction.SelectBackToTypo)
                 {
                     // Offer the run back to the earliest unfixed mistake for retyping. NOT gated on
-                    // AllowWrongInput, unlike the erase above, and backlog 244 is where that stopped
-                    // being the same question. The old gate read "under Gatekeeper no wrong character
-                    // ever lands, so there is never a typo to select", which was true of typos and
-                    // false of the other thing the query now answers: a WORD SKIP is orthogonal to
-                    // the input model (see TypingEngine.SpaceSkipsWord, whose gate carries no
-                    // AllowWrongInput term at all), so a Gatekeeper player can and does leave
-                    // abandoned cells behind, and they are exactly the cells this gesture exists to
-                    // walk back to. The query itself is the honest gate: it answers -1 when there is
-                    // nothing behind the caret to retype, under either input model.
+                    // AllowWrongInput. The query itself is the gate: it answers -1 when there is
+                    // no wrong or abandoned cell behind the caret to retype.
                     //
                     // The key is still SWALLOWED either way, effective or not, which is unchanged:
                     // the default Ctrl+A carries meaning elsewhere in the game that gameplay must

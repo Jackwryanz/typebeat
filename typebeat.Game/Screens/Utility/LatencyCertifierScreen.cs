@@ -146,15 +146,6 @@ namespace typebeat.Game.Screens.Utility
                             Origin = Anchor.TopCentre,
                             TextAnchor = Anchor.TopCentre,
                         },
-                        new SettingsSlider<double>
-                        {
-                            Anchor = Anchor.TopCentre,
-                            Origin = Anchor.TopCentre,
-                            RelativeSizeAxes = Axes.None,
-                            Width = 400,
-                            LabelText = "bpm",
-                            Current = SampleBPM
-                        },
                         new SettingsSlider<float>
                         {
                             Anchor = Anchor.TopCentre,

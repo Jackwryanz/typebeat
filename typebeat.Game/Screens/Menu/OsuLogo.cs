@@ -56,11 +56,6 @@ namespace typebeat.Game.Screens.Menu
 
         protected virtual MenuLogoVisualisation CreateMenuLogoVisualisation() => new MenuLogoVisualisation();
 
-        protected virtual double BeatSampleVariance => 0.1;
-
-        protected Sample SampleBeat;
-        protected Sample SampleDownbeat;
-
         private readonly Container colourAndTriangles;
         private readonly TrianglesV2 triangles;
 
@@ -282,9 +277,6 @@ namespace typebeat.Game.Screens.Menu
         {
             sampleClick = audio.Samples.Get(@"Menu/osu-logo-select");
 
-            SampleBeat = audio.Samples.Get(@"Menu/osu-logo-heartbeat");
-            SampleDownbeat = audio.Samples.Get(@"Menu/osu-logo-downbeat");
-
             logo.Texture = textures.Get(@"Menu/logo");
             ripple.Texture = textures.Get(@"Menu/logo");
         }
@@ -302,24 +294,6 @@ namespace typebeat.Game.Screens.Menu
             float amplitudeAdjust = Math.Min(1, 0.4f + amplitudes.Maximum);
 
             if (beatIndex < 0) return;
-
-            if (Action != null && IsHovered)
-            {
-                this.Delay(early_activation).Schedule(() =>
-                {
-                    if (beatIndex % timingPoint.TimeSignature.Numerator == 0)
-                    {
-                        SampleDownbeat?.Play();
-                    }
-                    else
-                    {
-                        var channel = SampleBeat.GetChannel();
-
-                        channel.Frequency.Value = 1 - BeatSampleVariance / 2 + RNG.NextDouble(BeatSampleVariance);
-                        channel.Play();
-                    }
-                });
-            }
 
             logoBeatContainer
                 .ScaleTo(1 - 0.02f * amplitudeAdjust, early_activation, Easing.Out).Then()

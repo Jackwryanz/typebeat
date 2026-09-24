@@ -125,14 +125,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             base.ConfigureTimeline(timelineArea);
 
-            // The waveform is the primary reading surface in lyric compose: show it solid, and
-            // pull the beat ticks back to half strength so they stop competing with it.
+            // The waveform is the primary reading surface in lyric compose.
             timelineArea.Timeline.WaveformOpacityOverride = 1;
-            timelineArea.Timeline.TickAlpha = 0.5f;
-
-            // "snap to grid" is a property of the TOP timeline only (the beat ticks are drawn
-            // there, and the strip below carries lyric structure rather than beats).
-            timelineArea.Timeline.SnapDragSeekToBeat.BindTo(state.SnapToGrid);
         }
 
         protected override void LoadComplete()

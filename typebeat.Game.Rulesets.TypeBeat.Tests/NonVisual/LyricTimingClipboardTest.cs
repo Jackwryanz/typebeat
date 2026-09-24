@@ -70,12 +70,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static TypeBeatHitObject line(EditorBeatmap editorBeatmap, int index)
             => TypeBeatEditorOperations.OrderedLines(editorBeatmap)[index];
 
+        private static void addSubdivisionAndPause(EditorBeatmap editorBeatmap)
+        {
+            var hitObject = line(editorBeatmap, 0);
+            var source = hitObject.Line;
+            var units = source.Units.ToArray();
+            var first = units[0];
+
+            units[0] = new TimedUnit
+            {
+                Text = first.Text,
+                StartTime = first.StartTime,
+                EndTime = first.EndTime,
+                Source = first.Source,
+                Confidence = first.Confidence,
+                SyllableBoundaries = new[] { 1300d },
+                SyllableSplits = new[] { 2 },
+                Pauses = new[] { new WordPause(1500, 1600, 3) },
+            };
+
+            hitObject.Line = new LyricLine
+            {
+                RawText = source.RawText,
+                StartTime = source.StartTime,
+                EndTime = source.EndTime,
+                SingEndTime = source.SingEndTime,
+                Units = units,
+                SealGraceMs = source.SealGraceMs,
+                Estimated = source.Estimated,
+            };
+            editorBeatmap.Update(hitObject);
+        }
+
         // ---- serialization ----
 
         [Test]
         public void LinePayload_RoundTripsThroughTheStringClipboard()
         {
             var editorBeatmap = createBeatmap();
+            addSubdivisionAndPause(editorBeatmap);
             var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
 
             string serialized = LyricTimingClipboard.Serialize(payload);
@@ -88,6 +121,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(lines!.Lines, Has.Count.EqualTo(1));
                 Assert.That(lines.Lines[0].SingEndOffset, Is.EqualTo(1800));
                 Assert.That(lines.Lines[0].Units.Select(u => (u.Start, u.End)), Is.EqualTo(new[] { (0d, 800d), (900d, 1800d) }));
+                Assert.That(lines.Lines[0].Units[0].Subdivisions, Is.EqualTo(new[] { 300d }));
+                Assert.That(lines.Lines[0].Units[0].Splits, Is.EqualTo(new[] { 2 }));
+                Assert.That(lines.Lines[0].Units[0].Pauses!.Select(p => (p.Start, p.End, p.SplitChar)),
+                    Is.EqualTo(new[] { (500d, 600d, 3) }));
             });
         }
 
@@ -109,6 +146,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void PasteOntoLine_RebasesOntoTargetStart_WithoutMovingBoundaries()
         {
             var editorBeatmap = createBeatmap();
+            addSubdivisionAndPause(editorBeatmap);
 
             var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
             TypeBeatEditorOperations.PasteLineTimings(editorBeatmap, new[] { line(editorBeatmap, 1) }, payload);
@@ -124,6 +162,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(target.Units.Select(u => (u.StartTime, u.EndTime)), Is.EqualTo(new[] { (3000d, 3800d), (3900d, 4800d) }));
                 Assert.That(target.SingEndTime, Is.EqualTo(4800));
                 Assert.That(target.Units.All(u => u.Source == TimingSource.Explicit), Is.True);
+                Assert.That(target.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3300d }));
+                Assert.That(target.Units[0].Pauses.Select(p => (p.StartTime, p.EndTime, p.SplitChar)),
+                    Is.EqualTo(new[] { (3500d, 3600d, 3) }));
+                Assert.That(line(editorBeatmap, 1).Granularity, Is.EqualTo(TimingGranularity.Syllable));
                 Assert.That(target.Estimated, Is.False);
             });
         }
@@ -238,6 +280,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void UnitRun_PastesAnchoredAtTheFocusedWord()
         {
             var editorBeatmap = createBeatmap();
+            addSubdivisionAndPause(editorBeatmap);
 
             // Copy line0's two words: pattern (0,800),(900,1800) rel to first word's start.
             var run = TypeBeatEditorOperations.CopyUnitTimings(line(editorBeatmap, 0), new[] { 0, 1 })!;
@@ -252,6 +295,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(target.Units.Select(u => (u.StartTime, u.EndTime)), Is.EqualTo(new[] { (3000d, 3800d), (3900d, 4800d) }));
                 Assert.That(target.Units.All(u => u.Source == TimingSource.Explicit), Is.True);
+                Assert.That(target.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3300d }));
+                Assert.That(target.Units[0].Pauses.Select(p => (p.StartTime, p.EndTime, p.SplitChar)),
+                    Is.EqualTo(new[] { (3500d, 3600d, 3) }));
                 // A unit paste touches no line field of its own, but this run reached the LAST word
                 // and overwrote its end, and end_ms is auto-derived from that end.
                 Assert.That(target.SingEndTime, Is.EqualTo(4800));

@@ -222,7 +222,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 typeCells(engine, 0, 3);
                 Assert.That(engine.ProcessKey(' ', 1200), Is.True);
-                Assert.That(correctAndFinish(engine).anchor, Is.EqualTo(2), "the gap in front of the wholly abandoned word");
+                Assert.That(correctAndFinish(engine).anchor, Is.EqualTo(3), "the skipped word's head");
             }
 
             Assert.Multiple(() =>
@@ -392,17 +392,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         // -----------------------------------------------------------------------------------------
 
         /// <summary>
-        /// THE INPUT-LAYER DEFECT, and the reason the reported correction manufactured a typo on its
-        /// way. A word given up WHOLE has no typed cell of its own for the mass backspace to stop on:
-        /// the transparent step-over walks the entire abandoned run and erases the nearest typed cell
-        /// behind it, which is the gap in FRONT of the word. Anchored on the word's head the collapse
-        /// therefore ended up one cell behind its own selection, and the first letter of the retype
-        /// landed on that already-judged gap as a fresh typo.
-        ///
-        /// <para>The selection is widened to that gap instead, so the anchor is a cell the collapse
-        /// can actually land on. Era-free on purpose: it changes which frames the LIVE gesture emits
-        /// and nothing about how a recorded one is played back, unlike a bounded backspace, which
-        /// would stop somewhere its own BACKSPACE frames could not reproduce.</para>
+        /// A wholly abandoned word anchors at its head. One backspace reopens it and the
+        /// following space, leaving the gap before the word and its correct prefix intact.
         /// </summary>
         [Test]
         public void TheCollapseOverAWhollyAbandonedWordLandsOnItsAnchor(
@@ -418,22 +409,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(cells(engine)[3].State, Is.EqualTo(CellState.Abandoned), "the word head is a cell nobody typed");
-                Assert.That(anchor, Is.EqualTo(2), "the gap in front of it, not the word head at 3");
+                Assert.That(anchor, Is.EqualTo(3), "the head of the skipped word");
             });
 
             int erases = eraseBackTo(engine, anchor);
 
             Assert.Multiple(() =>
             {
-                Assert.That(erases, Is.EqualTo(2), "the gap the skip took, then one press over the abandoned run onto the gap before it");
+                Assert.That(erases, Is.EqualTo(1), "one press undoes the skip");
                 Assert.That(engine.CaretIndex, Is.EqualTo(anchor), "the collapse ends ON the anchor, never behind it");
 
                 for (int i = 3; i < 13; i++)
                     Assert.That(cells(engine)[i].State, Is.EqualTo(CellState.Untyped), $"cell {i} was reclaimed on the way past");
             });
 
-            // The retype now starts on the gap, which is inert, and every letter lands on the cell it
-            // is meant for. Before the widening this first press landed on the gap as a typo.
+            // Retype starts at the skipped word; the gap before it remains correct.
             typeCells(engine, anchor, cells(engine).Count);
 
             Assert.Multiple(() =>
@@ -447,8 +437,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The bound on that widening: a word with ANY cell of its own typed still anchors on its
-        /// head, because the collapse can stop there. This is the mid-word shape backlog 244 shipped
+        /// A partly typed skipped word still anchors on its head. This is the mid-word shape backlog 244 shipped
         /// and it must not move (see <c>WordInputTest.CollapsingASelectionOverASkipRedeemsItsComboClaim</c>
         /// and <c>SpaceSkipWordTest.AReclaimedSkipGivesTheComboBackToWhereItWouldHaveBeen</c>).
         /// </summary>
@@ -466,7 +455,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(erases, Is.EqualTo(2), "the gap, then one press over the abandoned run onto 'c'");
+                Assert.That(erases, Is.EqualTo(2), "undo the skip, then erase the typed word head");
                 Assert.That(engine.CaretIndex, Is.EqualTo(3));
             });
         }

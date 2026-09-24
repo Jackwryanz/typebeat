@@ -64,9 +64,6 @@ namespace typebeat.Game.Screens.Select
                 case "od":
                     return TryUpdateCriteriaRange(ref criteria.OverallDifficulty, op, value);
 
-                case "bpm":
-                    return TryUpdateCriteriaRange(ref criteria.BPM, op, value, 0.5f);
-
                 case "length":
                     return tryUpdateLengthRange(criteria, op, value);
 

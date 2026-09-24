@@ -246,11 +246,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// A word given up to a word skip (backlog 167) is reclaimed by the gesture exactly as a
-        /// plain backspace reclaims it: ONE ProcessBackspace steps transparently back over the
-        /// abandoned cells to the last character actually typed. The composed loop therefore lands
-        /// PAST its own target here, which is deliberate and documented on the query: the target is a
-        /// floor, and the existing reclaim rule wins over it.
+        /// The first Backspace undoes a skip and its following gap. Ctrl+Backspace then keeps
+        /// going to the start of the word, erasing its correctly typed prefix too.
         /// </summary>
         [Test]
         public void ItReclaimsASkippedWordInOnePressLikeThePlainKey()
@@ -273,7 +270,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(erases, Is.EqualTo(2), "the gap, then one press stepping over the phantom cell onto 'a'");
+                Assert.That(erases, Is.EqualTo(2), "undo the skip, then erase 'a'");
                 Assert.That(engine.CaretIndex, Is.Zero);
                 Assert.That(cells(engine)[1].State, Is.EqualTo(CellState.Untyped), "the abandoned cell was reclaimed");
                 Assert.That(cells(engine)[0].State, Is.EqualTo(CellState.Untyped), "and 'a' was erased");
@@ -680,19 +677,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The sibling of the test above with NOTHING of the word typed (backlog 260): a space struck
-        /// at the head of "cd" gives the WHOLE word up, and the composed collapse then has no typed
-        /// cell of that word to stop on. Its transparent step-over walks the entire abandoned run and
-        /// erases the nearest typed cell behind it, which is the gap in FRONT of the word, so an
-        /// anchor on the word's head left the caret one cell BEHIND its own selection and the first
-        /// letter of the retype landed on that already-judged gap as a fresh typo: one keystroke of
-        /// correction manufacturing a mistake of its own.
-        ///
-        /// <para>The selection is widened by one cell instead, to the gap the collapse really ends on.
-        /// That keeps the whole gesture inside the existing replay vocabulary, which BOUNDING the
-        /// backspace would not: playback feeds a recorded BACKSPACE straight into the plain call, so a
-        /// live erase that stopped short would not reproduce. The extra cell costs one keystroke and
-        /// nothing else, a judged gap retyping inert.</para>
+        /// A wholly abandoned word anchors at its head. One backspace reopens it and the
+        /// space after it, while preserving the correctly typed gap before the word.
         /// </summary>
         [Test]
         public void CollapsingASelectionOverAWhollyAbandonedWordLandsOnItsAnchor()
@@ -713,22 +699,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(cells(engine)[3].State, Is.EqualTo(CellState.Abandoned));
                 Assert.That(cells(engine)[4].State, Is.EqualTo(CellState.Abandoned));
                 Assert.That(engine.CaretIndex, Is.EqualTo(6), "past the second gap, at the head of \"ef\"");
-                Assert.That(engine.RetypeSelectionAnchor, Is.EqualTo(2), "the gap in front of \"cd\", not the head of \"cd\" at 3");
+                Assert.That(engine.RetypeSelectionAnchor, Is.EqualTo(3), "the head of the skipped word");
             });
 
-            int erases = eraseBackTo(engine, 2);
+            int erases = eraseBackTo(engine, 3);
 
             Assert.Multiple(() =>
             {
-                Assert.That(erases, Is.EqualTo(2), "the gap the skip took, then one press over the phantom run onto the gap before it");
-                Assert.That(engine.CaretIndex, Is.EqualTo(2), "ON the anchor, never behind it");
+                Assert.That(erases, Is.EqualTo(1), "one press undoes the skip");
+                Assert.That(engine.CaretIndex, Is.EqualTo(3), "ON the anchor, never behind it");
                 Assert.That(cells(engine)[3].State, Is.EqualTo(CellState.Untyped), "and the abandoned cells were reclaimed on the way");
                 Assert.That(cells(engine)[4].State, Is.EqualTo(CellState.Untyped));
             });
 
-            // The retype starts on the gap, which is inert, and every letter lands on the cell it is
-            // meant for. Anchored one cell later, this first press was a typo on the gap.
-            foreach (int i in new[] { 2, 3, 4, 5, 6, 7 })
+            // The retype starts at the skipped word.
+            foreach (int i in new[] { 3, 4, 5, 6, 7 })
                 Assert.That(engine.ProcessKey(cells(engine)[i].Expected, cells(engine)[i].TargetTime), Is.True);
 
             Assert.Multiple(() =>

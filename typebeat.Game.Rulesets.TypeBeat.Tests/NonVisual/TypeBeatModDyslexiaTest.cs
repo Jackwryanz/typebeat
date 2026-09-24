@@ -548,9 +548,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         ///
         /// <para>The state that separates the two is a word SKIP reclaimed by backspace: the skip
         /// snapshots its break against the first abandoned cell, and the backspace that reclaims the
-        /// word puts the caret on the last character actually typed, which is BEHIND that cell. So
-        /// the cell holding the claim is ahead of the caret, and only a press that reports where it
-        /// landed can redeem it.</para>
+        /// word puts the caret on the first abandoned cell. A press that lands on the cell
+        /// holding the claim redeems it.</para>
         /// </summary>
         [Test]
         public void AnOutOfOrderFixRestoresTheStreakTheBreakCost()
@@ -571,23 +570,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(CellState.Abandoned, cells(typing)[2].State);
             Assert.AreEqual(1, typing.Combo, "the gap press rebuilt one");
 
-            // The first backspace takes back the space itself (the nearest thing the player typed),
-            // and the second steps transparently over both abandoned cells, re-opening them, and
-            // erases cell 0. The claim's cell (1) is now UNTYPED and AHEAD of the caret.
+            // One backspace reopens both abandoned cells and erases the space, preserving cell 0.
             Assert.IsTrue(typing.ProcessBackspace());
-            Assert.AreEqual(3, typing.CaretIndex);
-
-            Assert.IsTrue(typing.ProcessBackspace());
-            Assert.AreEqual(0, typing.CaretIndex);
+            Assert.AreEqual(1, typing.CaretIndex);
             Assert.AreEqual(CellState.Untyped, cells(typing)[1].State);
             Assert.AreEqual(CellState.Untyped, cells(typing)[2].State);
             Assert.AreEqual(0, restored);
 
-            // Typing it out of order redeems the break: combo 1 (standing) + 1 (restored) + 1 (this
-            // press) = 3.
+            // Type 't' beyond the caret first, then the claim's 'a'. The latter restores the
+            // skipped streak even though the word was completed out of order.
+            Assert.IsTrue(typing.ProcessKey('t', 1700));
+            Assert.AreEqual(0, restored);
             Assert.IsTrue(typing.ProcessKey('a', 1600));
             Assert.AreEqual(1, restored, "the streak the skip broke was put back by the cell that redeems it");
-            Assert.AreEqual(3, typing.Combo);
+            Assert.AreEqual(4, typing.Combo);
         }
 
         /// <summary>

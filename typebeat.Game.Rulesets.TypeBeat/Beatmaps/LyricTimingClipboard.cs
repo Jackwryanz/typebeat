@@ -12,20 +12,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// JSON into the editor's string clipboard (<c>EditorClipboard.Content</c>), discriminated by
     /// <c>type</c> so paste can dispatch:
     ///
-    ///  - <see cref="LineTimingsPayload"/>: one entry per copied line, each holding its units'
-    ///    offsets and sung-end RELATIVE TO THE LINE START. Pasting rebases the pattern onto each
+    ///  - <see cref="LineTimingsPayload"/>: one entry per copied line, each holding its units',
+    ///    subdivisions' and pauses' offsets plus sung-end RELATIVE TO THE LINE START. Pasting rebases the pattern onto each
     ///    target line's own start; line boundaries are never moved (so no cascade through the
     ///    shared-boundary chain), which is exactly the repeated-chorus workflow: stamp the line
     ///    starts by ear, then paste chorus #1's internal timing onto #2/#3.
-    ///  - <see cref="UnitTimingsPayload"/>: the selected word units' offsets relative to the FIRST
-    ///    selected unit's start. Pasting anchors the pattern at a target word's current start.
+    ///  - <see cref="UnitTimingsPayload"/>: the selected word units' spans, subdivisions and pauses
+    ///    relative to the FIRST selected unit's start. Pasting anchors the pattern at a target word's current start.
     /// </summary>
     public static class LyricTimingClipboard
     {
         private const string line_type = "typebeat-line-timings";
         private const string unit_type = "typebeat-unit-timings";
 
-        /// <summary>One unit's [start, end] as offsets from the payload's reference point.</summary>
+        /// <summary>One authored pause as offsets from the payload's reference point.</summary>
+        public class PauseSpan
+        {
+            [JsonProperty("start")]
+            public double Start;
+
+            [JsonProperty("end")]
+            public double End;
+
+            [JsonProperty("split_char")]
+            public int SplitChar;
+        }
+
+        /// <summary>One unit's timing and internal shape, offset from the payload's reference point.</summary>
         public class UnitSpan
         {
             [JsonProperty("start")]
@@ -33,6 +46,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             [JsonProperty("end")]
             public double End;
+
+            [JsonProperty("text", NullValueHandling = NullValueHandling.Ignore)]
+            public string? Text;
+
+            [JsonProperty("subdivisions", NullValueHandling = NullValueHandling.Ignore)]
+            public List<double>? Subdivisions;
+
+            [JsonProperty("splits", NullValueHandling = NullValueHandling.Ignore)]
+            public List<int>? Splits;
+
+            [JsonProperty("pauses", NullValueHandling = NullValueHandling.Ignore)]
+            public List<PauseSpan>? Pauses;
         }
 
         /// <summary>One line's internal timing, all offsets relative to the line's StartTime.</summary>

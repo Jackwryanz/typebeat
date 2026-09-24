@@ -258,13 +258,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public readonly BindableBool SnapToCaret = new BindableBool(true);
 
         /// <summary>
-        /// Magnet a drag of the TOP waveform timeline onto the nearest beat-grid line. Off by
-        /// default: type!beat maps carry a synthetic 120 BPM timing point that has nothing to do
-        /// with the song, so the grid is only useful when the mapper knows it lines up.
-        /// </summary>
-        public readonly BindableBool SnapToGrid = new BindableBool();
-
-        /// <summary>
         /// Raised to ask the fine-timing strip to bring a time INTO VIEW: a one-shot pan that
         /// leaves the caret alone (a left-list line click, an undone edit somewhere off screen).
         /// An event rather than a bindable because the same time may be requested twice in a row.

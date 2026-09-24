@@ -42,8 +42,8 @@ namespace typebeat.Game.Screens.Edit.Components.Timelines.Summary.Parts
                     case EffectControlPoint effect:
                         return $"{StartTime.ToEditorFormattedString()} effect [{effect.ScrollSpeed:N2}x scroll{(effect.KiaiMode ? " kiai" : "")}]";
 
-                    case TimingControlPoint timing:
-                        return $"{StartTime.ToEditorFormattedString()} timing [{timing.BPM:N2} bpm {timing.TimeSignature.GetDescription()}]";
+                    case TimingControlPoint:
+                        return $"{StartTime.ToEditorFormattedString()} timing change";
                 }
 
                 return string.Empty;

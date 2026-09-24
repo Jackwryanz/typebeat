@@ -57,6 +57,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Manual newlines",
                     "Use space error dot",
                     "Show syllable markers",
+                    "Show word pace colours",
                 }));
 
                 // THE WIRING, not a copy of it: flip each setting at the config manager and the
@@ -68,6 +69,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     TypeBeatRulesetSetting.ManualNewlines,
                     TypeBeatRulesetSetting.UseSpaceErrorDot,
                     TypeBeatRulesetSetting.ShowSyllableMarkers,
+                    TypeBeatRulesetSetting.ShowPaceColours,
                 };
 
                 for (int i = 0; i < settings.Length; i++)
@@ -85,7 +87,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 // And the defaults the game ships with, which the move must not have reset either.
                 // Manual newlines and the space error dot both ship ON as of 2026-09-21.
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true }));
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, true }));
             }
         }
 
@@ -126,6 +128,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Typing font",
                     "Use space error dot",
                     "Show syllable markers",
+                    "Show word pace colours",
                 }));
             }
         }

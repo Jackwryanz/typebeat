@@ -111,7 +111,8 @@ namespace typebeat.Game.Skinning.Components
                                               .Replace("{", "{{")
                                               .Replace("}", "}}")
                                               .Replace(@"{{Label}}", "{0}")
-                                              .Replace(@"{{Value}}", "{1}");
+                                              .Replace(@"{{Value}}", "{1}")
+                                              .Replace(@"{{BPM}}", string.Empty);
 
             List<object?> values = new List<object?>
             {
@@ -173,9 +174,6 @@ namespace typebeat.Game.Skinning.Components
                 case BeatmapAttribute.RankedStatus:
                     return BeatmapDiscussionsStrings.IndexFormBeatmapsetStatusDefault;
 
-                case BeatmapAttribute.BPM:
-                    return BeatmapsetsStrings.ShowStatsBpm;
-
                 case BeatmapAttribute.MaxPP:
                     return BeatmapAttributeTextStrings.MaxPP;
 
@@ -208,9 +206,6 @@ namespace typebeat.Game.Skinning.Components
 
                 case BeatmapAttribute.RankedStatus:
                     return beatmap.Value.BeatmapInfo.Status.GetLocalisableDescription();
-
-                case BeatmapAttribute.BPM:
-                    return FormatUtils.RoundBPM(beatmap.Value.BeatmapInfo.BPM, ModUtils.CalculateRateWithMods(mods.Value)).ToLocalisableString(@"0.##");
 
                 case BeatmapAttribute.CircleSize:
                     return computeDifficulty().CircleSize.ToLocalisableString(@"0.##");
@@ -273,8 +268,8 @@ namespace typebeat.Game.Skinning.Components
         Creator,
         Length,
         RankedStatus,
-        BPM,
-        Source,
+        // Preserve the numeric value used by existing skin settings.
+        Source = 12,
         MaxPP
     }
 }

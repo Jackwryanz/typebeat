@@ -16,12 +16,10 @@ using osuTK;
 using osuTK.Graphics;
 using osuTK.Input;
 using osu.Framework.Extensions.Color4Extensions;
-using typebeat.Game.Graphics.Containers;
 using osu.Framework.Graphics.Effects;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input.Events;
 using osu.Framework.Localisation;
-using typebeat.Game.Beatmaps.ControlPoints;
 
 namespace typebeat.Game.Screens.Menu
 {
@@ -29,11 +27,9 @@ namespace typebeat.Game.Screens.Menu
     /// Button designed specifically for the type!beatnext main menu.
     /// In order to correctly flow, we have to use a negative margin on the parent container (due to the parallelogram shape).
     /// </summary>
-    public partial class MainMenuButton : BeatSyncedContainer, IStateful<ButtonState>
+    public partial class MainMenuButton : Container, IStateful<ButtonState>
     {
-        public const float BOUNCE_COMPRESSION = 0.9f;
         public const float HOVER_SCALE = 1.2f;
-        public const float BOUNCE_ROTATION = 8;
         public event Action<ButtonState>? StateChanged;
 
         public readonly Key[] TriggerKeys;
@@ -192,38 +188,12 @@ namespace typebeat.Game.Screens.Menu
             FinishTransforms(true);
         }
 
-        private bool rightward;
-
-        protected override void OnNewBeat(int beatIndex, TimingControlPoint timingPoint, EffectControlPoint effectPoint, ChannelAmplitudes amplitudes)
-        {
-            base.OnNewBeat(beatIndex, timingPoint, effectPoint, amplitudes);
-
-            if (!IsHovered) return;
-
-            double duration = timingPoint.BeatLength / 2;
-
-            icon.RotateTo(rightward ? BOUNCE_ROTATION : -BOUNCE_ROTATION, duration * 2, Easing.InOutSine);
-
-            icon.Animate(
-                i => i.MoveToY(-10, duration, Easing.Out),
-                i => i.ScaleTo(HOVER_SCALE, duration, Easing.Out)
-            ).Then(
-                i => i.MoveToY(0, duration, Easing.In),
-                i => i.ScaleTo(new Vector2(HOVER_SCALE, HOVER_SCALE * BOUNCE_COMPRESSION), duration, Easing.In)
-            );
-
-            rightward = !rightward;
-        }
-
         protected override bool OnHover(HoverEvent e)
         {
             if (State != ButtonState.Expanded) return true;
 
-            double duration = TimeUntilNextBeat;
-
             icon.ClearTransforms();
-            icon.RotateTo(rightward ? -BOUNCE_ROTATION : BOUNCE_ROTATION, duration, Easing.InOutSine);
-            icon.ScaleTo(new Vector2(HOVER_SCALE, HOVER_SCALE * BOUNCE_COMPRESSION), duration, Easing.Out);
+            icon.ScaleTo(HOVER_SCALE, 200, Easing.Out);
 
             sampleHover?.Play();
             background.ResizeTo(Vector2.Multiply(initialSize, new Vector2(1.5f, 1)), 500, Easing.OutElastic);

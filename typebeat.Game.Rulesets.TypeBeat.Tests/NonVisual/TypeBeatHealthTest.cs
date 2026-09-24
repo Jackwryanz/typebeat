@@ -625,7 +625,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 engine.Update(1100);
                 Assert.IsTrue(engine.ProcessKey(' ', 1100));
                 Assert.IsTrue(engine.ProcessBackspace(), "one press re-opens the whole abandoned word");
-                Assert.IsTrue(engine.ProcessKey(' ', 1000), "the erased word gap, retyped (scoring-inert)");
             }
 
             var cells = engine.Lines[0].Cells;

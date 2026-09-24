@@ -11,33 +11,33 @@ using osuTK.Graphics;
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
-    /// One WORD-sized slice of a line, with the local playhead speed the map's own per-character
+    /// One word or authored-subdivision slice of a line, with the local playhead speed the map's own per-character
     /// targets give it: the half-open cell range [<see cref="StartCell"/>,
     /// <see cref="EndCellExclusive"/>) and <see cref="Speed"/> in COUNTABLE cells per millisecond.
     /// </summary>
     public readonly record struct PaceSegment(int StartCell, int EndCellExclusive, double Speed);
 
     /// <summary>
-    /// A render-ready underline band: a <see cref="PaceSegment"/>'s cell range plus the colour its
-    /// MAP-WIDE percentile rank earned it. Speed is gone by this point on purpose: the colour is a
-    /// whole-map decision, so nothing downstream should be able to re-derive it from one line.
+    /// A render-ready underline band: a <see cref="PaceSegment"/>'s cell range plus the colour
+    /// chosen by the selected pace mode. The display does not calculate speed or colour.
     /// </summary>
     public readonly record struct PaceBand(int StartCell, int EndCellExclusive, Color4 Colour);
 
     /// <summary>
     /// The UNDERLINE PACE HUE (backlog 228): the sung-sweep rail under a lyric line is cut into one
-    /// band per WORD and each band is tinted by how fast the playhead crosses it RELATIVE TO THE
-    /// REST OF THE MAP. A player reading ahead sees where the line is about to get dense (red) and
-    /// where it opens up (green) without any number on screen.
+    /// band per WORD or authored subdivision. The whole-map mode colours each band relative to
+    /// every band in the map; the previous-segment mode colours it relative to the band before it.
+    /// Red indicates faster and green indicates slower.
     ///
     /// <para>Purely display. Nothing here is read by judgement, scoring, the replay, the wire or any
     /// anti-cheat gate; it consumes <see cref="TypingCell.TargetTime"/> and produces colours.</para>
     ///
-    /// <para><b>Segmentation: per word, INCLUDING the trailing gap.</b> A segment runs from a word's
-    /// first cell through the word gap that closes it (<see cref="LyricLineDisplay.IsWordGap"/>),
-    /// and its map-time span runs to the NEXT segment's first target (the line's sung end for the
-    /// last one). So a long breath between two words is charged to the word before it and reads as
-    /// slow, which is the whole reason the gap is inside the segment rather than between segments.
+    /// <para><b>Segmentation: per authored subdivision within subdivided words.</b> An ordinary
+    /// word remains one segment. An authored subdivision marker opens a new segment at the same
+    /// cell edge the lyric display marks. The final segment of a word includes its trailing gap
+    /// (<see cref="LyricLineDisplay.IsWordGap"/>), and each map-time span runs to the NEXT segment's
+    /// first target (the line's sung end for the last one). A long breath between words is thus
+    /// charged to the final subdivision of the word before it and reads as slow.
     /// Segments tile the line with no holes at either end, which the renderer relies on.</para>
     ///
     /// <para><b>The metric is COUNTABLE cells per millisecond</b> (<see cref="TypingCell.IsCountable"/>:
@@ -167,15 +167,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// Cut one line into word segments and price each one. See the type doc for the rule; the
-        /// short form is that a segment ends AFTER the word gap that closes its word, and its span
-        /// reaches to the next segment's first vocal target so the breath is inside it.
+        /// Colour a section by its change from the immediately preceding section. A 50% increase
+        /// reaches the red endpoint and a 50% decrease reaches the green endpoint. The first
+        /// section has no reference and stays neutral; a positive speed after a zero-speed section
+        /// is fully red.
+        /// </summary>
+        public static Color4 ColourForPreviousSpeed(double speed, double? previousSpeed)
+        {
+            if (!previousSpeed.HasValue)
+                return NeutralColour;
+
+            if (previousSpeed.Value <= 0)
+                return speed > 0 ? ColourForRank(1) : NeutralColour;
+
+            double change = (speed - previousSpeed.Value) / previousSpeed.Value;
+
+            if (change > 0)
+                return ColourForRank(NEUTRAL_HI_RANK + Math.Min(change / 0.5, 1) * (1 - NEUTRAL_HI_RANK));
+
+            if (change < 0)
+                return ColourForRank(NEUTRAL_LO_RANK - Math.Min(-change / 0.5, 1) * NEUTRAL_LO_RANK);
+
+            return NeutralColour;
+        }
+
+        /// <summary>
+        /// Cut one line into word segments and price each one. Without authored subdivision
+        /// markers, each segment ends after the gap that closes its word.
         ///
         /// <para><paramref name="lineSungEndMs"/> closes the LAST segment, and the caller is expected
         /// to pass what <see cref="TypingLine"/>'s own sung polyline ends at (see
         /// <see cref="SungEndOf"/>). Pure, so it is unit-testable.</para>
         /// </summary>
         public static PaceSegment[] SegmentLine(IReadOnlyList<TypingCell> cells, double lineSungEndMs)
+            => segmentLine(cells, lineSungEndMs, Array.Empty<int>());
+
+        private static PaceSegment[] segmentLine(IReadOnlyList<TypingCell> cells, double lineSungEndMs, IReadOnlyList<int> subdivisionStarts)
         {
             int n = cells.Count;
 
@@ -191,6 +218,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 if (LyricLineDisplay.IsWordGap(cells[i]) && i + 1 < n)
                     starts.Add(i + 1);
+            }
+
+            foreach (int start in subdivisionStarts)
+            {
+                if (start > 0 && start < n)
+                    starts.Add(start);
+            }
+
+            starts.Sort();
+
+            for (int i = starts.Count - 1; i > 0; i--)
+            {
+                if (starts[i] == starts[i - 1])
+                    starts.RemoveAt(i);
             }
 
             var result = new PaceSegment[starts.Count];
@@ -226,8 +267,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             return result;
         }
 
-        /// <summary>Cut a whole line, closing the last segment at the line's own sung end.</summary>
-        public static PaceSegment[] SegmentLine(TypingLine line) => SegmentLine(line.Cells, SungEndOf(line));
+        /// <summary>Cut a whole line at authored subdivisions and word gaps, closing the last segment at its sung end.</summary>
+        public static PaceSegment[] SegmentLine(TypingLine line)
+            => segmentLine(line.Cells, SungEndOf(line), line.SyllableMarkerCells);
 
         /// <summary>
         /// Where a line stops being sung: <see cref="TypingLine.SweepEndTime"/>, which IS the last
@@ -295,7 +337,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// The whole-map precompute: cut every line into word segments, rank all of their speeds
+        /// The whole-map precompute: cut every line into word and authored-subdivision segments, rank all of their speeds
         /// against each other, and return one render-ready <see cref="PaceBand"/> array per line, in
         /// the order the lines were given.
         ///
@@ -304,6 +346,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// and has no way to compute one.</para>
         /// </summary>
         public static PaceBand[][] BuildBands(IReadOnlyList<TypingLine> lines)
+            => buildBands(lines, relativeToPrevious: false);
+
+        /// <summary>Colour each word or subdivision against its immediate predecessor, across line breaks.</summary>
+        public static PaceBand[][] BuildRelativeBands(IReadOnlyList<TypingLine> lines)
+            => buildBands(lines, relativeToPrevious: true);
+
+        private static PaceBand[][] buildBands(IReadOnlyList<TypingLine> lines, bool relativeToPrevious)
         {
             int m = lines.Count;
             var perLine = new PaceSegment[m][];
@@ -317,10 +366,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     speeds.Add(segment.Speed);
             }
 
-            double[] ranks = RanksOf(speeds);
+            double[] ranks = relativeToPrevious ? Array.Empty<double>() : RanksOf(speeds);
 
             var bands = new PaceBand[m][];
             int at = 0;
+            double? previousSpeed = null;
 
             for (int k = 0; k < m; k++)
             {
@@ -329,7 +379,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 for (int j = 0; j < perLine[k].Length; j++)
                 {
                     var segment = perLine[k][j];
-                    bands[k][j] = new PaceBand(segment.StartCell, segment.EndCellExclusive, ColourForRank(ranks[at++]));
+                    Color4 colour = relativeToPrevious
+                        ? ColourForPreviousSpeed(segment.Speed, previousSpeed)
+                        : ColourForRank(ranks[at]);
+
+                    bands[k][j] = new PaceBand(segment.StartCell, segment.EndCellExclusive, colour);
+                    previousSpeed = segment.Speed;
+                    at++;
                 }
             }
 
