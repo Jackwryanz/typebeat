@@ -433,6 +433,15 @@ namespace typebeat.Game.Beatmaps
                         PreviewTime = decoded.Metadata.PreviewTime,
                         AudioFile = decoded.Metadata.AudioFile,
                         BackgroundFile = decoded.Metadata.BackgroundFile,
+                        // type!beat's own [Metadata]/[General] additions. This copy is field by field, so a
+                        // field missing here is not merely late: every imported row reads its default for
+                        // good, and song select's language grouping, the set overlay and anything else that
+                        // reads realm metadata sees "not chosen" for a map whose file says otherwise.
+                        // UserTags is the one decoder-free field (filled from online lookups).
+                        Language = decoded.Metadata.Language,
+                        AudioGain = decoded.Metadata.AudioGain,
+                        LyricFont = decoded.Metadata.LyricFont,
+                        LyricFontFile = decoded.Metadata.LyricFontFile,
                     };
 
                     var beatmap = new BeatmapInfo(ruleset, difficulty, metadata)
