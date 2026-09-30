@@ -29,8 +29,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             RelativeSizeAxes = Axes.Both;
         }
 
+        /// <summary>
+        /// The rating the LIVE pp counter prices at. Unlike every finished surface it does not
+        /// require a ranked map: a run on a local, pending or otherwise unranked map still shows
+        /// what it would be worth, so a mapper testing their own map or a player on a set awaiting
+        /// nomination sees a number rather than a dash. The unranked-mod and custom-rate gates
+        /// stay, since those make the play worthless wherever it is set. The results screen keeps
+        /// the map gate (<see cref="PerformancePointsDisplay.ForScore"/>), so the dash there is
+        /// still the honest reading of what was earned.
+        /// </summary>
         public static double? StarRatingFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods)
-            => PerformancePointsDisplay.StarRatingFor(playableBeatmap, mods);
+            => PerformancePointsDisplay.StarRatingFor(playableBeatmap, mods, requireRankedMap: false);
 
         public bool SyncReadoutVisible => Components.OfType<TypeBeatSyncCounter>().FirstOrDefault()?.Alpha > 0;
 

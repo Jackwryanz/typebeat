@@ -724,7 +724,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void TheTwoSurfacesShareOneSetOfGates()
         {
             // Not a paraphrase of the HUD's rule: literally the same function, so a gate added to
-            // one is a gate added to both.
+            // one is a gate added to both. The ONE deliberate difference is the map gate: the live
+            // counter previews an unranked map at its would-be price, the results table dashes it.
             var beatmap = playable();
 
             Assert.Multiple(() =>
@@ -732,7 +733,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(TypeBeatHudOverlay.StarRatingFor(beatmap, null),
                     Is.EqualTo(PerformancePointsDisplay.StarRatingFor(beatmap, null)));
                 Assert.That(TypeBeatHudOverlay.StarRatingFor(playable(BeatmapOnlineStatus.WIP), null),
-                    Is.EqualTo(PerformancePointsDisplay.StarRatingFor(playable(BeatmapOnlineStatus.WIP), null)));
+                    Is.EqualTo(PerformancePointsDisplay.StarRatingFor(playable(BeatmapOnlineStatus.WIP), null, requireRankedMap: false)));
+                Assert.That(PerformancePointsDisplay.StarRatingFor(playable(BeatmapOnlineStatus.WIP), null), Is.Null,
+                    "the results table keeps the map gate");
                 Assert.That(TypeBeatHudOverlay.StarRatingFor(beatmap, mods(new TypeBeatModMashing())),
                     Is.EqualTo(PerformancePointsDisplay.StarRatingFor(beatmap, mods(new TypeBeatModMashing()))));
             });

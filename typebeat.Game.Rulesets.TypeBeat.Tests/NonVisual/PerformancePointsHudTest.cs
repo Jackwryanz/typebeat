@@ -263,8 +263,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase(BeatmapOnlineStatus.Pending)]
         [TestCase(BeatmapOnlineStatus.Qualified)]
         [TestCase(BeatmapOnlineStatus.Loved)]
-        public void AMapThatGrantsNoPpIsPricedAtNothingAtAll(BeatmapOnlineStatus status)
-            => Assert.That(TypeBeatHudOverlay.StarRatingFor(playable(status), null), Is.Null);
+        public void TheLiveCounterPricesAMapThatGrantsNoPpAsIfItWereRanked(BeatmapOnlineStatus status)
+        {
+            // The live counter answers "what would this run be worth", so an unranked map still
+            // gets a number, and the same number a ranked copy of it would: the status is the only
+            // thing that differs between the two beatmaps here.
+            Assert.Multiple(() =>
+            {
+                Assert.That(TypeBeatHudOverlay.StarRatingFor(playable(status), null), Is.GreaterThan(0));
+                Assert.That(TypeBeatHudOverlay.StarRatingFor(playable(status), null),
+                    Is.EqualTo(TypeBeatHudOverlay.StarRatingFor(playable(BeatmapOnlineStatus.Ranked), null)));
+            });
+        }
+
+        [TestCase(BeatmapOnlineStatus.None)]
+        [TestCase(BeatmapOnlineStatus.LocallyModified)]
+        [TestCase(BeatmapOnlineStatus.Graveyard)]
+        [TestCase(BeatmapOnlineStatus.WIP)]
+        [TestCase(BeatmapOnlineStatus.Pending)]
+        [TestCase(BeatmapOnlineStatus.Qualified)]
+        [TestCase(BeatmapOnlineStatus.Loved)]
+        public void EveryFinishedSurfaceStillPricesAMapThatGrantsNoPpAtNothingAtAll(BeatmapOnlineStatus status)
+        {
+            // The default of the shared helper is the finished-surface rule (ForScore, the results
+            // table); only the HUD overlay opts out of the map gate.
+            Assert.That(PerformancePointsDisplay.StarRatingFor(playable(status), null), Is.Null);
+        }
+
+        [Test]
+        public void TheLiveCounterStillDashesAnUnrankedModOnAnUnrankedMap()
+        {
+            // Dropping the map gate must not drop the mod gate with it: an unranked mod makes the
+            // play worthless wherever it is set.
+            Assert.That(TypeBeatHudOverlay.StarRatingFor(playable(BeatmapOnlineStatus.Pending), mods(new TypeBeatModMashing())), Is.Null);
+        }
 
         [TestCase(BeatmapOnlineStatus.Ranked)]
         [TestCase(BeatmapOnlineStatus.Approved)]
@@ -274,8 +306,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void AnIneligiblePlayShowsNoNumber()
         {
-            // The decision this constant encodes: a live "214" on a play the server will store at
-            // 0 pp is a lie the player would only discover on the results screen.
+            // The decision this constant encodes: a live "214" on a play with an unranked mod, which
+            // the server will store at 0 pp, is a lie the player would only discover on the results
+            // screen. (An unranked MAP is different: there the live number is an honest preview of
+            // what the run would earn once ranked, and the results screen still dashes it.)
             Assert.That(TypeBeatHudOverlay.INELIGIBLE_TEXT, Is.EqualTo("-"));
         }
 

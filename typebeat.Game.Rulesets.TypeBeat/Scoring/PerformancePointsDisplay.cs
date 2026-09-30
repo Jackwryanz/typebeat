@@ -73,7 +73,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <item>any UNRANKED mod in the stack (Mashing, Autoplay, Wind Up/Down, ...), which makes
         /// the submission path store the score <c>ranked = false</c>;</item>
         /// <item>a map that grants no pp (anything not Ranked/Approved: a local map, an unsubmitted
-        /// map, a work in progress).</item>
+        /// map, a work in progress). This gate alone can be switched off with
+        /// <paramref name="requireRankedMap"/>: the LIVE counter prices a play on an unranked map
+        /// as if the map were ranked, so the player sees what the run would be worth (a mapper
+        /// testing their own map, a pending set waiting on nomination), while the results screen
+        /// keeps the gate, because there the number is a claim about what was earned.</item>
         /// </list>
         ///
         /// <para>A FAILED play is NOT gated here, because failing is not knowable in advance and the
@@ -82,12 +86,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// the results screen uses. The two overlap on the first three deliberately: a play cannot
         /// be worth anything without a rating, and a rating exists only where those hold.</para>
         /// </summary>
-        public static double? StarRatingFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods)
+        /// <param name="playableBeatmap">The beatmap as converted for play.</param>
+        /// <param name="mods">The play's mods.</param>
+        /// <param name="requireRankedMap">Whether gate 3 applies. The default is what every finished
+        /// surface wants; only the live HUD counter passes false.</param>
+        public static double? StarRatingFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods, bool requireRankedMap = true)
         {
             if (playableBeatmap == null)
                 return null;
 
-            if (!playableBeatmap.BeatmapInfo.Status.GrantsPerformancePoints())
+            if (requireRankedMap && !playableBeatmap.BeatmapInfo.Status.GrantsPerformancePoints())
                 return null;
 
             if (mods != null && mods.Any(m => !m.Ranked))
