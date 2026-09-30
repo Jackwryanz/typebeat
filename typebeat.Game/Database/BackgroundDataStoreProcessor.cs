@@ -233,8 +233,9 @@ namespace typebeat.Game.Database
 
         /// <summary>
         /// Fills <see cref="BeatmapInfo.TargetWpm"/> and <see cref="BeatmapInfo.HasIntroBeatdrop"/> on every row still
-        /// marked unprocessed (see <see cref="StoredBeatmapFacts"/>): a library that predates realm schema 59, or a
-        /// map whose facts failed to compute last time. Strictly local, like the star rating pass above.
+        /// marked unprocessed (see <see cref="StoredBeatmapFacts"/>): a library that predates realm schema 59 or 60, or a
+        /// map whose facts failed to compute last time. Also heals the row's file-backed metadata from the same decode
+        /// (<see cref="StoredBeatmapFacts.StampFileMetadata"/>). Strictly local, like the star rating pass above.
         /// </summary>
         private void populateMissingTypingFacts()
         {
@@ -281,15 +282,23 @@ namespace typebeat.Game.Database
                         throw new InvalidOperationException("beatmap file could not be read");
 
                     var (targetWpm, hasIntroBeatdrop) = StoredBeatmapFacts.Compute(working);
+                    var fileMetadata = working.Beatmap.Metadata;
+                    bool metadataChanged = false;
 
                     realmAccess.Write(r =>
                     {
                         if (r.Find<BeatmapInfo>(id) is BeatmapInfo liveBeatmapInfo)
                         {
+                            // The same decode heals the metadata an older import never copied (realm schema 60).
+                            metadataChanged = StoredBeatmapFacts.StampFileMetadata(liveBeatmapInfo.Metadata, fileMetadata);
                             liveBeatmapInfo.TargetWpm = targetWpm;
                             liveBeatmapInfo.HasIntroBeatdrop = hasIntroBeatdrop;
                         }
                     });
+
+                    // A cached working beatmap carries a copy of the row's metadata; drop it so the healed values are seen.
+                    if (metadataChanged)
+                        ((IWorkingBeatmapCache)beatmapManager).Invalidate(beatmap);
 
                     ++processedCount;
                 }

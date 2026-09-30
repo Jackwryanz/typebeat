@@ -125,8 +125,12 @@ namespace typebeat.Game.Database
         ///                    StarRating sentinel, which also gates HasIntroBeatdrop) on every existing row:
         ///                    the column's realm default (0) would otherwise read as a processed paceless map.
         ///                    BackgroundDataStoreProcessor backfills both. See StoredBeatmapFacts.
+        /// 60   2026-09-30    No new columns. Mark every BeatmapInfo unprocessed again (TargetWpm -1) so the
+        ///                    background pass re-decodes the whole library once: imports never copied the
+        ///                    file's Language, AudioGain, LyricFont and LyricFontFile onto the realm row, and
+        ///                    the pass now heals them from the decode it already makes.
         /// </summary>
-        private const int schema_version = 59;
+        private const int schema_version = 60;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.
@@ -1402,6 +1406,24 @@ namespace typebeat.Game.Database
                     // would take for "processed, nothing typeable". Mark every row unprocessed instead, so the
                     // background pass computes both facts and the menu and intro decode in the meantime.
                     // HasIntroBeatdrop's default (false) is already the right unprocessed value.
+                    // The realm is held in a local for the reason given in case 56 above.
+                    Realm realm = migration.NewRealm;
+
+                    foreach (var beatmap in realm.All<BeatmapInfo>())
+                        beatmap.TargetWpm = StoredBeatmapFacts.UNPROCESSED;
+
+                    break;
+                }
+
+                case 60:
+                {
+                    // Until now the importer copied the decoded metadata field by field and skipped type!beat's
+                    // own additions, so every installed row reads Language unspecified, AudioGain 1 and no lyric
+                    // font, whatever its file says. The values are in the files, not recoverable from realm, and
+                    // a migration cannot decode maps. Mark every row unprocessed instead, as case 59 does: the
+                    // background pass that recomputes the stored facts decodes each map anyway, and now also
+                    // stamps the file's metadata onto the row (StoredBeatmapFacts.StampFileMetadata). The two
+                    // facts themselves come back unchanged; re-deriving them is the price of the one decode.
                     // The realm is held in a local for the reason given in case 56 above.
                     Realm realm = migration.NewRealm;
 

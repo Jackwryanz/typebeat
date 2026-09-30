@@ -66,6 +66,8 @@ namespace typebeat.Game.Beatmaps
 
                     // Target WPM and intro beatdrop, stored for song select's grouping (see StoredBeatmapFacts).
                     // Import and editor save both land here, so this is where a changed map re-derives them.
+                    // Also stamps what the file states of its language, gain and lyric font onto the row, AFTER
+                    // the metadata lookup above, so a language the file states wins over the server's.
                     try
                     {
                         StoredBeatmapFacts.Apply(beatmap, working);

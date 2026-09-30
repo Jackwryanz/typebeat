@@ -29,6 +29,14 @@ namespace typebeat.Game.Beatmaps
     /// for an unprocessed row; song select's grouping cannot, so it reads an unprocessed row as "no beatdrop" and
     /// its WPM as unknown until the background pass reaches it.
     /// </para>
+    /// <para>
+    /// THE FILE'S OWN METADATA rides the same two write points (<see cref="StampFileMetadata"/>): type!beat's
+    /// additions to the .osu metadata (<see cref="BeatmapMetadata.Language"/>, <see cref="BeatmapMetadata.AudioGain"/>,
+    /// <see cref="BeatmapMetadata.LyricFont"/>, <see cref="BeatmapMetadata.LyricFontFile"/>) were for a while never
+    /// copied onto the realm row at import, so every library installed before realm schema 60 holds the defaults
+    /// for maps whose files state otherwise. Schema 60 marks every row unprocessed, and the pass that re-derives the
+    /// two facts above heals the metadata from the same decode.
+    /// </para>
     /// </remarks>
     public static class StoredBeatmapFacts
     {
@@ -61,14 +69,73 @@ namespace typebeat.Game.Beatmaps
         }
 
         /// <summary>
-        /// Writes both facts onto <paramref name="beatmap"/> (a live realm row inside a write, or a detached copy).
+        /// Writes both facts onto <paramref name="beatmap"/> (a live realm row inside a write, or a detached copy),
+        /// after stamping the file's own metadata onto it (<see cref="StampFileMetadata"/>). The stamp goes first so
+        /// that a map whose facts fail to compute still gets its declared language.
         /// </summary>
         public static void Apply(BeatmapInfo beatmap, IWorkingBeatmap working)
         {
+            StampFileMetadata(beatmap.Metadata, working.Beatmap.Metadata);
+
             var (targetWpm, hasIntroBeatdrop) = Compute(working);
 
             beatmap.TargetWpm = targetWpm;
             beatmap.HasIntroBeatdrop = hasIntroBeatdrop;
+        }
+
+        /// <summary>
+        /// Copies what the FILE (<paramref name="decoded"/>, a freshly decoded map's metadata) states of type!beat's
+        /// metadata additions onto a realm row's <paramref name="stored"/> metadata: every field the file sets to
+        /// something other than its default
+        /// replaces the stored value, and a field the file leaves at its default leaves the stored value alone.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A default in the file is "the file does not say", not "the file says default", because the encoders
+        /// write no line at all for a default. That asymmetry is what keeps two other writers intact: the online
+        /// lookup (<see cref="BeatmapUpdaterMetadataLookup"/>) fills <see cref="BeatmapMetadata.Language"/> from
+        /// the server for the oldest sets, uploaded before the Language line existed, and the next decode of that
+        /// line-less file must not wipe it back to unspecified; and an editor save that returns a field to its
+        /// default already wrote the default onto the row itself.
+        /// </para>
+        /// <para>
+        /// A value the file DOES state wins over whatever the row holds, including a language the lookup filled
+        /// from the server: the mapper's own declaration is the authority, and it makes the result independent
+        /// of whether the lookup or this stamp runs first.
+        /// </para>
+        /// </remarks>
+        /// <returns>Whether anything on <paramref name="stored"/> changed.</returns>
+        public static bool StampFileMetadata(BeatmapMetadata stored, BeatmapMetadata decoded)
+        {
+            bool changed = false;
+
+            if (decoded.Language != BeatmapLanguage.Unspecified && stored.Language != decoded.Language)
+            {
+                stored.Language = decoded.Language;
+                changed = true;
+            }
+
+            // Exact comparison on purpose: the decoder hands back exactly DEFAULT_AUDIO_GAIN when the line is
+            // absent, and any value that differs by any amount was written by a mapper.
+            if (decoded.AudioGain != BeatmapMetadata.DEFAULT_AUDIO_GAIN && stored.AudioGain != decoded.AudioGain)
+            {
+                stored.AudioGain = decoded.AudioGain;
+                changed = true;
+            }
+
+            if (!string.IsNullOrEmpty(decoded.LyricFont) && stored.LyricFont != decoded.LyricFont)
+            {
+                stored.LyricFont = decoded.LyricFont;
+                changed = true;
+            }
+
+            if (!string.IsNullOrEmpty(decoded.LyricFontFile) && stored.LyricFontFile != decoded.LyricFontFile)
+            {
+                stored.LyricFontFile = decoded.LyricFontFile;
+                changed = true;
+            }
+
+            return changed;
         }
 
         /// <summary>
