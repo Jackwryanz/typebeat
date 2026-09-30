@@ -6,6 +6,7 @@ using System.Linq;
 using Newtonsoft.Json;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Database;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Online.API.Requests.Responses;
@@ -114,7 +115,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(beatmap.Metadata.Language, Is.EqualTo(BeatmapLanguage.Unspecified));
         }
 
+        // ---- already installed line-less sets ----
+
+        [Test]
+        public void AnInstalledLineLessOnlineRowIsHandedBackToTheLookup()
+        {
+            var beatmap = installed(BeatmapLanguage.Unspecified);
+
+            Assert.That(BackgroundDataStoreProcessor.NeedsOnlineLanguage(beatmap), Is.True);
+        }
+
+        [Test]
+        public void OnlyALineLessOnlineRowThatStillMatchesTheServerIsHandedBack()
+        {
+            var stated = installed(BeatmapLanguage.English);
+
+            var local = installed(BeatmapLanguage.Unspecified);
+            local.OnlineID = -1;
+
+            var modified = installed(BeatmapLanguage.Unspecified);
+            modified.OnlineMD5Hash = "fedcba9876543210fedcba9876543210";
+
+            var neverLookedUp = installed(BeatmapLanguage.Unspecified);
+            neverLookedUp.LastOnlineUpdate = null;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(BackgroundDataStoreProcessor.NeedsOnlineLanguage(stated), Is.False, "the file stated one");
+                Assert.That(BackgroundDataStoreProcessor.NeedsOnlineLanguage(local), Is.False, "the server does not know it");
+                Assert.That(BackgroundDataStoreProcessor.NeedsOnlineLanguage(modified), Is.False, "a local edit must keep its own state");
+                Assert.That(BackgroundDataStoreProcessor.NeedsOnlineLanguage(neverLookedUp), Is.False, "already queued for the online pass");
+            });
+        }
+
         // ---- helpers ----
+
+        private static BeatmapInfo installed(BeatmapLanguage language)
+        {
+            var beatmap = row(language);
+            beatmap.OnlineID = 11;
+            beatmap.OnlineMD5Hash = md5;
+            beatmap.LastOnlineUpdate = DateTimeOffset.UtcNow;
+            return beatmap;
+        }
 
         private static string lookupJson(string? setField)
         {

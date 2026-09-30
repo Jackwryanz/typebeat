@@ -293,6 +293,9 @@ namespace typebeat.Game.Database
                             metadataChanged = StoredBeatmapFacts.StampFileMetadata(liveBeatmapInfo.Metadata, fileMetadata);
                             liveBeatmapInfo.TargetWpm = targetWpm;
                             liveBeatmapInfo.HasIntroBeatdrop = hasIntroBeatdrop;
+
+                            if (NeedsOnlineLanguage(liveBeatmapInfo))
+                                liveBeatmapInfo.LastOnlineUpdate = null;
                         }
                     });
 
@@ -311,6 +314,25 @@ namespace typebeat.Game.Database
 
             completeNotification(notification, processedCount, beatmapIds.Count, failedCount);
         }
+
+        /// <summary>
+        /// Whether a row the typing-facts pass just healed should be handed back to <see cref="processOnlineBeatmapSetsWithNoUpdate"/>
+        /// (which runs next) by clearing its <see cref="BeatmapInfo.LastOnlineUpdate"/>, so the metadata lookup can fill its language
+        /// from the server.
+        /// </summary>
+        /// <remarks>
+        /// An online map whose file states no language even after the heal is one of the oldest server sets, uploaded before the
+        /// <c>[Metadata] Language:</c> line existed. The lookup fills those (<see cref="BeatmapUpdaterMetadataLookup"/>), but a row
+        /// installed before the fill existed already has a <see cref="BeatmapInfo.LastOnlineUpdate"/> and would never be looked up
+        /// again on its own. Only while the row still matches the online version: clearing the date makes
+        /// <see cref="BeatmapInfo.MatchesOnlineVersion"/> true by definition, and a locally modified row must not have online state
+        /// written over it. One-shot in practice: the lookup sets the date again, and the pass only sees rows marked unprocessed.
+        /// </remarks>
+        internal static bool NeedsOnlineLanguage(BeatmapInfo beatmap)
+            => beatmap.Metadata.Language == BeatmapLanguage.Unspecified
+               && beatmap.OnlineID > 0
+               && beatmap.LastOnlineUpdate != null
+               && beatmap.MatchesOnlineVersion;
 
         private void processOnlineBeatmapSetsWithNoUpdate()
         {
