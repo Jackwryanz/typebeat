@@ -21,6 +21,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>The explicit user selection; null = follow the playhead.</summary>
         public readonly Bindable<TypeBeatHitObject?> SelectedLine = new Bindable<TypeBeatHitObject?>();
 
+        /// <summary>Which lyric script the compose editor displays. This is a view choice, not a map edit.</summary>
+        public readonly BindableBool ShowOriginalLyrics = new BindableBool();
+
         /// <summary>
         /// All multi-selected lines (Ctrl/Shift+click in the line list). Contains
         /// <see cref="SelectedLine"/> whenever a multi-selection exists; empty when only the
@@ -298,13 +301,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// on what they just listened to is the common case.
         /// </summary>
         public readonly BindableBool SnapToCaret = new BindableBool(true);
-
-        /// <summary>
-        /// Magnet a drag of the TOP waveform timeline onto the nearest beat-grid line. Off by
-        /// default: type!beat maps carry a synthetic 120 BPM timing point that has nothing to do
-        /// with the song, so the grid is only useful when the mapper knows it lines up.
-        /// </summary>
-        public readonly BindableBool SnapToGrid = new BindableBool();
 
         /// <summary>
         /// Raised to ask the fine-timing strip to bring a time INTO VIEW: a one-shot pan that

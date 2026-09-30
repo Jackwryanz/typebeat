@@ -23,10 +23,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// functions cannot see, which is the whole of the wiring:
     ///
     /// <list type="bullet">
-    /// <item>The map-wide distribution actually reaches the rail, so a line that is UNIFORMLY FAST
-    /// renders red while the typical lines around it stay exactly the rail that shipped before this
-    /// feature. This is the decided distribution basis, and a per-line implementation would grey that
-    /// line out, so this scene is what catches such a regression.</item>
+    /// <item>A change in speed from the previous word or subdivision reaches the rail. The first
+    /// word of a faster line is red, while its next word is neutral at the same speed.</item>
     /// <item>A PREVIEW line carries the same hues as an active one and is dimmed by the line dim
     /// rather than by anything of its own, which is free only because the bands live inside the
     /// display's dimmed content container.</item>
@@ -133,40 +131,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// THE HEADLINE, and the reason per-line percentiles were rejected: line 1 is uniformly fast,
-        /// so every segment in it is typical OF IT, and only a whole-map distribution can call it
-        /// fast. It must red.
+        /// Relative colours mark the transition into a different pace. Equal-speed words remain
+        /// neutral, including the second word of both the fast and the slow line.
         /// </summary>
         [Test]
-        public void TestAUniformlyFastLineRendersRedAgainstTheMap()
+        public void TestChangesInSpeedRenderRedOrGreen()
         {
-            AddAssert("the fast line's bands are all red", () =>
-                Enumerable.Range(0, 2).All(b => bandColour(fast_line, b).R > neutral.R
-                                                && bandColour(fast_line, b).B < neutral.B
-                                                && bandColour(fast_line, b).A > neutral.A));
+            AddAssert("the fast line starts red", () =>
+                bandColour(fast_line, 0).R > neutral.R
+                && bandColour(fast_line, 0).B < neutral.B
+                && bandColour(fast_line, 0).A > neutral.A);
 
-            AddAssert("the breathy line's bands are all green", () =>
-                Enumerable.Range(0, 2).All(b => bandColour(slow_line, b).G > neutral.G
-                                                && bandColour(slow_line, b).B < neutral.B
-                                                && bandColour(slow_line, b).A > neutral.A));
+            AddAssert("the breathy line starts green", () =>
+                bandColour(slow_line, 0).G > neutral.G
+                && bandColour(slow_line, 0).B < neutral.B
+                && bandColour(slow_line, 0).A > neutral.A);
 
-            // And the map's typical middle is untouched: the rail those lines draw is byte-identical
-            // to the one that shipped before any of this existed.
-            AddAssert("the typical lines keep the pre-task rail", () =>
-                new[] { 0, 2, 3 }.All(k => Enumerable.Range(0, 2).All(b => bandColour(k, b) == neutral)));
+            AddAssert("equal-speed neighbours stay neutral", () =>
+                Enumerable.Range(0, 5).All(k => bandColour(k, 1) == neutral)
+                && bandColour(0, 0) == neutral
+                && bandColour(3, 0) == neutral);
         }
 
         /// <summary>
-        /// The rendered colours ARE the map-wide rule's output, not something the display re-derived:
-        /// every band on screen is compared against <see cref="UnderlinePace.BuildBands"/> run over
+        /// The rendered colours are the relative rule's output, not something the display re-derived:
+        /// every band on screen is compared against <see cref="UnderlinePace.BuildRelativeBands"/> run over
         /// the engine's own lines.
         /// </summary>
         [Test]
-        public void TestEveryBandOnScreenIsTheMapWideRulesOwnColour()
+        public void TestEveryBandOnScreenIsTheRelativeRulesOwnColour()
         {
-            AddAssert("every band matches the whole-map precompute", () =>
+            AddAssert("every band matches the relative precompute", () =>
             {
-                var expected = UnderlinePace.BuildBands(engine.Lines);
+                var expected = UnderlinePace.BuildRelativeBands(engine.Lines);
 
                 for (int k = 0; k < expected.Length; k++)
                 {
@@ -204,7 +201,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("and it still carries the same red the rule gives it", () =>
             {
-                var expected = UnderlinePace.BuildBands(engine.Lines)[fast_line];
+                var expected = UnderlinePace.BuildRelativeBands(engine.Lines)[fast_line];
 
                 return Enumerable.Range(0, 2).All(b => bandColour(fast_line, b) == expected[b].Colour)
                        && bandColour(fast_line, 0).R > neutral.R;

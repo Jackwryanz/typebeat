@@ -21,9 +21,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// so judgement deltas recompute bit-identically.</item>
     /// <item><see cref="Character"/> is the exact character fed to the engine, AFTER keyboard-layout
     /// remapping and Shift application (so it carries the case the Literate mod judges on, and is
-    /// independent of the player's physical layout). Three sentinels reuse ASCII control codes:
+    /// independent of the player's physical layout). Control sentinels reuse ASCII control codes:
     /// <see cref="BACKSPACE"/> (0x08) is a backspace erase, <see cref="ENTER"/> (0x0A) is a line
-    /// skip (backlog 241), and <see cref="CONFIG"/> (0x00) is a
+    /// skip (backlog 241), <see cref="CONFIG_EXTENDED"/> (0x01) is the SECOND settings header
+    /// (backlog 347, see below), and <see cref="CONFIG"/> (0x00) is a
     /// settings header frame carrying the judgement-relevant settings as BITS: bit 0
     /// <see cref="AllowWrongInput"/> (the wrong-key model the run was judged under), bit 1
     /// <see cref="SpaceSkipsWord"/> (whether a space pressed inside a word abandoned it), bit 2
@@ -56,7 +57,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// the map's first vocal opened the first line, rather than being refused until the line's own
     /// activation).
     /// Other mods
-    /// (Literate/Mashing/rate) travel in the score itself and need no frames.
+    /// (Literate/Polyglot/Mashing/rate) travel in the score itself and need no frames.
     ///
     /// <para>Backlog 107 turned that model from a local SETTING into a mod (Gatekeeper), so it now
     /// travels in the score's mods too, and the header frame is kept anyway, for two reasons. It is
@@ -82,15 +83,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// to the encoder as the single bit was, and each new bit is appended ABOVE the existing ones,
     /// never renumbered: bits 0 to 4 keep their meaning and their positions untouched, so every
     /// replay already on disk decodes identically and simply reads false for the newer bits. All
-    /// typeable characters (a-z, A-Z, 0-9, space, plus the Literate mod's punctuation, whose
-    /// highest code point is ']' at 0x5D) and all three sentinels are far below the decoder's
+    /// typeable characters (including Polyglot's BMP Unicode characters, at most 0xFFFF)
+    /// and all control sentinels are below the decoder's
     /// coordinate parse limits and its (256, -500) stable-header positions, so no stable fixup can
     /// mangle them. Bits 8, 9 and 10 push the flags word itself to 256 and then past 512 and 1024,
     /// and the safety
     /// argument does not depend on the word's size at all: the stable-header strip matches the
     /// POSITION PAIR (256, -500) exactly, and a CONFIG frame's MouseX is 0x00 with a MouseY that is
     /// never negative, so neither coordinate can match whatever the flags word grows to. The
-    /// sentinels sit at 0x00, 0x08 and 0x0A, below every printable mark, so nothing
+    /// sentinels sit at 0x00, 0x01, 0x08 and 0x0A, below every printable mark, so nothing
     /// collides. Bit 12 pushed the word to 4096 and the ceiling to 8191, and bit 13 pushes them to
     /// 8192 and 16383, and bit 14 to 16384 and 32767; none of them changes anything about that
     /// argument, which never depended on the
@@ -101,8 +102,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <c>Parsing.ParseFloat(..., Parsing.MAX_COORDINATE_VALUE)</c>, which THROWS above 131072.
     /// Bit 15 took the word to 32768 and its ceiling to 65535, and bit 16 takes them to 65536 and
     /// 131071, one below that limit. A bit 17 would push a fully set word to 262143 and make the
-    /// replay undecodable, so the next era needs another carrier (or the decoder's limit raised for
-    /// this ruleset, the way MouseX's already is for mania) before it can be added here.</para>
+    /// replay undecodable, so the next era needed another carrier, which is the second one
+    /// below.</para>
     ///
     /// <para><b>The SECOND carrier (backlog 347): <see cref="CONFIG_EXTENDED"/>.</b> That next era
     /// arrived, and it lives on a second header frame rather than on a bit 17: the character is
@@ -125,6 +126,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// unknown sentinels below), so it replays the file without choking, under the rule it knows. A
     /// consumer that has to clone frames (<c>PuppeteerReplayTransform</c>) carries the word across
     /// like any other field.</para>
+    ///
+    /// <para><b>Second word, bit 1 (value 2): <see cref="InputEra2"/>, the SECOND INPUT ERA.</b> One
+    /// bit for a set of input and judgement rules that changed together, named for the era rather
+    /// than for any one rule so the whole set moves as one. With it set (every new live run) the
+    /// engine plays by all of the following; with it clear (every replay stored before it, whether
+    /// it has no extended frame at all or an extended frame with only bit 0) by none of them:</para>
+    /// <list type="number">
+    /// <item>THE RUSH CAP IS GONE. A press that leaves the unpinned caret any distance past the
+    /// playhead is judged on its timing alone and credits combo like any other: no combo break (the
+    /// pre-347 rule) and no Meh award (bit 0's rule). Bit 0 is still recorded, and is simply inert
+    /// under this one, exactly as it is under Puppeteer's <c>RushCapExempt</c>.</item>
+    /// <item>BACKSPACE UNDOES A WORD SKIP (<c>TypingEngine.tryUndoWordSkip</c>). One backspace
+    /// with the caret on or just past the gap after a word a skip abandoned re-opens every abandoned
+    /// (and auto-skipped) cell of that word, erases the space the skip typed onto that gap when it
+    /// is Correct, and parks the caret on the FIRST abandoned cell, leaving the correctly typed prefix
+    /// of the word intact. The old rule erased the typed gap on the first press and then stepped
+    /// transparently over the abandoned run onto the last character actually typed, erasing it.</item>
+    /// <item>SPACE TO SKIP NEEDS WRONG INPUT. <c>SpaceSkipsWord</c> abandons a word only when
+    /// <c>AllowWrongInput</c> is also on; under Gatekeeper a space pressed inside a word is a
+    /// rejected wrong key like any other. The old rule skipped under Gatekeeper too.</item>
+    /// <item>THE RETYPE SELECTION ANCHOR (<c>TypingEngine.RetypeSelectionAnchor</c>, Ctrl+A). A typo
+    /// on a word gap anchors at the start of the word BEFORE the gap rather than on the gap itself; a
+    /// word given up whole anchors on its own head rather than being widened back onto the gap in
+    /// front of it (backlog 260's widening, which the old backspace needed and the new one does not);
+    /// and leading punctuation a word auto-skips is stepped over. The anchor only decides which
+    /// BACKSPACE frames the live gesture records, never how a recorded one plays back, so this item
+    /// is gated for coherence with item 2 rather than for re-derivation.</item>
+    /// </list>
+    ///
+    /// <para>Applied exactly like bit 0: <c>ReplayEngineFeed.Apply</c> clears it on the CONFIG frame
+    /// and sets it from the extended one, before the first keystroke it could move.</para>
     ///
     /// <para><b>The WALL-CLOCK axis (bit 9, backlog 256).</b> Ordinarily a frame's time is a lyric
     /// time and can be fed to the engine as it stands. Under the Puppeteer mod the song's position
@@ -171,11 +203,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// second flags word, written straight after the <see cref="CONFIG"/> frame because the
         /// first word's carrier is full (see the class summary). An older client ignores it.
         /// </summary>
-        public const char CONFIG_EXTENDED = '\u0001';
+        public const char CONFIG_EXTENDED = '';
 
         /// <summary>
         /// The character fed to the engine (layout-remapped, Shift-cased), or a sentinel
-        /// (<see cref="BACKSPACE"/>/<see cref="ENTER"/>/<see cref="CONFIG"/>). Never a sentinel value for real typing:
+        /// (<see cref="BACKSPACE"/>/<see cref="ENTER"/>/<see cref="CONFIG"/>/<see cref="CONFIG_EXTENDED"/>). Never a sentinel value for real typing:
         /// the typeable surface is a-z/A-Z/0-9/space, widened under the Literate mod by the
         /// supported punctuation marks, all of them printable ASCII. Under the Polyglot mod (backlog
         /// 331) it is any character of the original script, which the legacy frame's MouseX float holds
@@ -453,6 +485,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool RushCapCostsAccuracy;
 
         /// <summary>
+        /// Whether the run was played in the SECOND INPUT ERA (see
+        /// <see cref="Gameplay.TypingEngine.InputEra2"/> and the class remarks for the exact rules it
+        /// switches): no rush cap, backspace undoing a word skip, Space to Skip only under wrong input,
+        /// and the refined retype anchor. Only meaningful on <see cref="CONFIG_EXTENDED"/> frames, where
+        /// it is bit 1 of the SECOND flags word. The live client records it true for every stack; a
+        /// replay stored before it reads false and re-derives under the rules it was played with.
+        /// </summary>
+        public bool InputEra2;
+
+        /// <summary>
         /// The ANCHOR carried by a bit-9 CONFIG frame: the track position the tape was started at,
         /// which is also the origin of the wall axis every other frame in the run is stamped on. It
         /// is simply this frame's own <see cref="ReplayFrame.Time"/>, named here because that is a
@@ -534,15 +576,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// Parameters are append-only and named, as <see cref="CreateConfigFrame"/>'s are; each one
         /// defaults to clear, which is what a replay with no extended frame decodes to.
         /// </summary>
-        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
+        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
         {
             RushCapCostsAccuracy = rushCapCostsAccuracy,
+            InputEra2 = inputEra2,
         };
 
         /// <summary>Bit 0 of the EXTENDED CONFIG frame's (second) flags word: an over-cap press was
         /// awarded Meh and credited combo, with the cap at six, rather than breaking the combo at five
         /// (backlog 347).</summary>
         private const int ext_flag_rush_cap_costs_accuracy = 1;
+
+        /// <summary>Bit 1 of the EXTENDED CONFIG frame's (second) flags word: the run was played in the
+        /// second input era (see <see cref="InputEra2"/>).</summary>
+        private const int ext_flag_input_era_2 = 2;
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
         private const int flag_allow_wrong_input = 1;
@@ -628,6 +675,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (Character == CONFIG_EXTENDED)
             {
                 RushCapCostsAccuracy = (flags & ext_flag_rush_cap_costs_accuracy) != 0;
+                InputEra2 = (flags & ext_flag_input_era_2) != 0;
                 return;
             }
 
@@ -654,7 +702,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             new LegacyReplayFrame(Time, Character, IsConfig ? configFlags() : IsConfigExtended ? extendedConfigFlags() : 0, ReplayButtonState.None);
 
         private int extendedConfigFlags() =>
-            RushCapCostsAccuracy ? ext_flag_rush_cap_costs_accuracy : 0;
+            (RushCapCostsAccuracy ? ext_flag_rush_cap_costs_accuracy : 0)
+            | (InputEra2 ? ext_flag_input_era_2 : 0);
 
         private int configFlags() =>
             (AllowWrongInput ? flag_allow_wrong_input : 0)

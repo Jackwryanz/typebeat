@@ -591,6 +591,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// COMBO RESTORE across an out-of-order fix. The claim a break leaves is a (line, cell,
+        /// streak) triple redeemed by typing THAT cell, so it has to be keyed on the cell the press
+        /// landed on and not on the caret.
+        ///
+        /// <para>The state that separates the two is a word SKIP reclaimed by backspace: the skip
+        /// snapshots its break against the first abandoned cell, and the backspace that reclaims the
+        /// word puts the caret on the first abandoned cell. A press that lands on the cell
+        /// holding the claim redeems it.</para>
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void AnOutOfOrderFixRestoresTheStreakTheBreakCostUnderInputEra2()
+        {
+            var typing = active(catDog());
+            typing.SpaceSkipsWord = true;
+            typing.InputEra2 = true;
+
+            int restored = 0;
+            typing.ComboRestored += streak => restored += streak;
+
+            Assert.IsTrue(typing.ProcessKey('c', 1000)); // cell 0, combo 1
+            Assert.AreEqual(1, typing.Combo);
+
+            // The skip abandons cells 1 and 2, takes the one break the streak of 1 costs, and
+            // snapshots it against cell 1; the space itself then lands on the gap.
+            Assert.IsTrue(typing.ProcessKey(' ', 1300));
+            Assert.AreEqual(CellState.Abandoned, cells(typing)[1].State);
+            Assert.AreEqual(CellState.Abandoned, cells(typing)[2].State);
+            Assert.AreEqual(1, typing.Combo, "the gap press rebuilt one");
+
+            // One backspace reopens both abandoned cells and erases the space, preserving cell 0.
+            Assert.IsTrue(typing.ProcessBackspace());
+            Assert.AreEqual(1, typing.CaretIndex);
+            Assert.AreEqual(CellState.Untyped, cells(typing)[1].State);
+            Assert.AreEqual(CellState.Untyped, cells(typing)[2].State);
+            Assert.AreEqual(0, restored);
+
+            // Type 't' beyond the caret first, then the claim's 'a'. The latter restores the
+            // skipped streak even though the word was completed out of order.
+            Assert.IsTrue(typing.ProcessKey('t', 1700));
+            Assert.AreEqual(0, restored);
+            Assert.IsTrue(typing.ProcessKey('a', 1600));
+            Assert.AreEqual(1, restored, "the streak the skip broke was put back by the cell that redeems it");
+            Assert.AreEqual(4, typing.Combo);
+        }
+
+        /// <summary>
         /// THE CARET INVARIANT, which is what keeps the mod out of everything that reads the caret:
         /// <c>CaretCountablePosition</c>, the Fletcher rush cap and the Flashlight window all treat
         /// it as a monotone frontier, so a run typed out of order must measure exactly like an

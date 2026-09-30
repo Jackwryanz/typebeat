@@ -25,7 +25,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// bound and first-char timing), so playback
     /// can reproduce judgement regardless of
     /// the watching machine's local config, and regardless of which JUDGEMENT ERA the client watching
-    /// it ships.
+    /// it ships. Since backlog 347 a second header, the EXTENDED CONFIG frame, follows it at the same
+    /// time with the second flags word (the rush cap's accuracy era and the second input era).
     ///
     /// <para><b>THE FRAME AXIS (backlog 256).</b> Ordinarily a frame's time is the lyric time the
     /// engine was fed at, and that is the whole of it. Under the PUPPETEER mod the song's position
@@ -93,7 +94,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // The SECOND flags word (backlog 347), straight after the first and at the same time,
                 // which is the order ReplayEngineFeed.Apply relies on (the CONFIG frame clears these
                 // flags, this one sets them).
-                emit(TypeBeatReplayFrame.CreateExtendedConfigFrame(configTime, rushCapCostsAccuracy: engine.RushCapCostsAccuracy));
+                emit(TypeBeatReplayFrame.CreateExtendedConfigFrame(configTime, rushCapCostsAccuracy: engine.RushCapCostsAccuracy, inputEra2: engine.InputEra2));
             }
 
             emit(new TypeBeatReplayFrame(StampFor(puppeteer, wallStamped, time), character));

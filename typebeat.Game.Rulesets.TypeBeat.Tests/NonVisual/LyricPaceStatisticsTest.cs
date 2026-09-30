@@ -17,9 +17,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// A line whose word span runs from its start to its vocal end, which is its boundary end
         /// unless <paramref name="singEnd"/> says otherwise.
         ///
-        /// <para><paramref name="units"/> overrides the spans when a fixture needs more than one — a
-        /// pause INSIDE a line is what the break threshold reads, and a single span covering the whole
-        /// window cannot express one.</para>
+        /// <para><paramref name="units"/> overrides the spans when a fixture needs more than one,
+        /// so an internal pause can be distinguished from the gap after the line.</para>
         /// </summary>
         private static LyricLine makeLine(string text, double start, double end, double? singEnd = null, params (double Start, double End)[] units)
         {
@@ -103,19 +102,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// THE POINT OF THE WHOLE-MAP RATE: a break in the song is not typing time.
-        ///
-        /// <para>A line's <see cref="LyricLine.EndTime"/> is the NEXT line's start, so a map with a long
-        /// instrumental after a line hands that pause to the line's own boundary window. The per-line
-        /// mean then charges the player for it, one pause at a time; the whole-map rate sums
-        /// <see cref="LyricLine.SingEndTime"/> − <see cref="LyricLine.StartTime"/> instead and never
-        /// sees it.</para>
+        /// The whole-map rate charges up to one second for a pause between lines, rather than
+        /// dropping it or charging the entire instrumental. The line mean is still boundary-based.
         /// </summary>
         [Test]
-        public void TheWholeMapAverageLeavesTheSongsBreaksOutOfTheDenominator()
+        public void TheWholeMapAverageCapsTheBreakBetweenLines()
         {
-            // Two 5-cell lines, each sung for 4 s but bounded for 20 s (a 16 s instrumental after each):
-            //   whole map = 10 cells / (4000 + 4000 ms) = 10 / 0.1333 =  75 CPM = 15 WPM
+            // Two 5-cell lines, each sung for 4 s and separated by a 16 s instrumental.
+            // The one pause contributes 1 s: 10 cells / (4 + 1 + 4 s) = 66.667 CPM.
             //   line mean = each line 5 cells / 20 s     =             15 CPM =  3 WPM
             var pace = LyricPaceStatistics.Compute(new[]
             {
@@ -124,35 +118,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
 
             Assert.AreEqual(10, pace.TypeableCellCount);
-            Assert.AreEqual(75.0, pace.AverageCpm, 1e-9);
-            Assert.AreEqual(15.0, pace.AverageWpm, 1e-9);
+            Assert.AreEqual(10.0 / (9000 / 60000.0), pace.AverageCpm, 1e-9);
+            Assert.AreEqual(10.0 / (9000 / 60000.0) / 5, pace.AverageWpm, 1e-9);
 
-            // The figure it replaced reads five times slower on the same map, because every one of those
-            // 16-second silences is sitting inside a line's own vote.
+            // The per-line mean still includes each line's entire 20-second boundary window.
             Assert.AreEqual(15.0, pace.LineAverageCpm, 1e-9);
             Assert.AreEqual(3.0, pace.LineAverageWpm, 1e-9);
 
             // "ab cd" is five cells over two words, so the map types 2.5 cells per word; the two
-            // averages differ ONLY by where the windows stop, which is the point of the fixture.
+            // averages differ by how the long inter-line pause is charged.
             Assert.AreEqual(2.5, pace.AverageCharsPerWord, 1e-9);
         }
 
         /// <summary>
-        /// THE THRESHOLD, and the difference between it being a threshold and it being a trim: a
-        /// pause counts as singing time up to <c>break_min_ms</c> and is dropped WHOLE beyond it.
-        ///
-        /// <para>Every fixture below is the same five cells over the same 10 s boundary window, so
-        /// the line mean is pinned at 30 CPM throughout and only the whole-map average moves. The
-        /// CPM figures encode the charged window directly, because 5 cells * 60000 / CPM is the
-        /// number of milliseconds that went into the denominator: 4000 -> 75, 5000 -> 60,
-        /// 6000 -> 50.</para>
+        /// Pauses between words are capped at one second just like pauses between lines. A gap
+        /// after the final line's vocal end is outside the map's measured typing time.
         /// </summary>
         [Test]
-        public void APauseCountsUpToTheBreakThresholdAndIsDroppedWholeBeyondIt()
+        public void InternalPausesAreCappedAndFinalTrailingSilenceIsNotCounted()
         {
-            // A BREATH of exactly 1000 ms between the two 2 s spans COUNTS — the comparison is
-            // inclusive, so the widest pause the constant allows is not itself a break. The 5 s
-            // tail after the last span is wider than the constant and is dropped whole.
+            // One second between the two words is inside the line; the 5 s after it is not.
             var breath = LyricPaceStatistics.Compute(new[]
             {
                 makeLine("ab cd", 0, 10000, singEnd: 5000, (0, 2000), (3000, 5000)),
@@ -161,18 +146,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(60.0, breath.AverageCpm, 1e-9);
             Assert.AreEqual(12.0, breath.AverageWpm, 1e-9);
 
-            // A BREAK of 1001 ms is over the line and is dropped WHOLE rather than trimmed to the
-            // constant: a trim would have charged the extra millisecond's worth and read 5000 ms
-            // (60 CPM) here, so 75 is the number that says "dropped".
-            var gone = LyricPaceStatistics.Compute(new[]
+            // Four seconds between the words contributes only one second.
+            var longInternalPause = LyricPaceStatistics.Compute(new[]
             {
-                makeLine("ab cd", 0, 10000, singEnd: 5001, (0, 2000), (3001, 5001)),
+                makeLine("ab cd", 0, 10000, singEnd: 8000, (0, 2000), (6000, 8000)),
             });
 
-            Assert.AreEqual(75.0, gone.AverageCpm, 1e-9);
+            Assert.AreEqual(60.0, longInternalPause.AverageCpm, 1e-9);
 
-            // The same rule reads the TAIL: a 1000 ms one after the final span counts, and a
-            // 1001 ms one does not.
+            // A gap after the final vocal end has no following lyric to separate from it.
             var shortTail = LyricPaceStatistics.Compute(new[]
             {
                 makeLine("ab cd", 0, 6000, singEnd: 5000, (0, 2000), (3000, 5000)),
@@ -183,22 +165,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 makeLine("ab cd", 0, 6001, singEnd: 5000, (0, 2000), (3000, 5000)),
             });
 
-            Assert.AreEqual(50.0, shortTail.AverageCpm, 1e-9);
+            Assert.AreEqual(60.0, shortTail.AverageCpm, 1e-9);
             Assert.AreEqual(60.0, longTail.AverageCpm, 1e-9);
 
-            // The threshold is the whole-map figure's alone. The line mean reads the BOUNDARY
-            // window and never looks inside it, so the two 10 s fixtures above disagree on the
-            // whole-map rate, 60 against 75, while reading the SAME line mean. (The two tail
-            // fixtures are shorter than the 10 s window, so their line means differ for that
-            // reason instead — nothing about the threshold.)
-            foreach (var pace in new[] { breath, gone })
+            // The line mean reads the BOUNDARY window, so both 10 s lines still get 30 CPM.
+            foreach (var pace in new[] { breath, longInternalPause })
             {
                 Assert.AreEqual(30.0, pace.LineAverageCpm, 1e-9);
                 Assert.AreEqual(6.0, pace.LineAverageWpm, 1e-9);
             }
 
             // Every fixture here is the same five cells, so no window shape can move that.
-            foreach (var pace in new[] { breath, gone, shortTail, longTail })
+            foreach (var pace in new[] { breath, longInternalPause, shortTail, longTail })
             {
                 Assert.AreEqual(5, pace.TypeableCellCount);
             }
@@ -364,8 +342,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <paramref name="windowsMs"/> lines of "a b c", one per boundary window given. The line
         /// holds exactly 5 cells (three tokens, three chars, two inter-word spaces), so its rate is
         /// 5 * 60000 / window CPM and the whole distribution is hand-computable. Line times are laid
-        /// out end to end with a 500 ms rest between them, which nothing here reads: a per-line mean
-        /// cannot see the gaps.
+        /// out with a 500 ms rest between them, which the whole-map rate counts but the per-line
+        /// mean cannot see.
         ///
         /// <para>THREE tokens rather than the single "abcde" this used to write, so the fixture reads
         /// as ordinary lyric text; cell for cell it is the same 5, so every pinned CPM and WPM below

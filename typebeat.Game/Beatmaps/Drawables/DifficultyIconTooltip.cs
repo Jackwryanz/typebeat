@@ -23,7 +23,6 @@ namespace typebeat.Game.Beatmaps.Drawables
     {
         private OsuSpriteText difficultyName = null!;
         private StarRatingDisplay starRating = null!;
-        private OsuSpriteText bpm = null!;
         private OsuSpriteText length = null!;
 
         private FillFlowContainer difficultyFillFlowContainer = null!;
@@ -84,7 +83,6 @@ namespace typebeat.Game.Beatmaps.Drawables
                             Children = new Drawable[]
                             {
                                 length = new OsuSpriteText { Font = OsuFont.GetFont(size: 14) },
-                                bpm = new OsuSpriteText { Font = OsuFont.GetFont(size: 14) },
                             }
                         }
                     }
@@ -118,8 +116,6 @@ namespace typebeat.Game.Beatmaps.Drawables
             if (displayedContent.Mods != null)
                 rate = ModUtils.CalculateRateWithMods(displayedContent.Mods);
 
-            double bpmAdjusted = displayedContent.BeatmapInfo.BPM * rate;
-
             Ruleset ruleset = displayedContent.Ruleset.CreateInstance();
             var beatmapAttributes = ruleset.GetBeatmapAttributesForDisplay(displayedContent.BeatmapInfo, displayedContent.Mods ?? [])
                                            .Select(attr => new OsuSpriteText
@@ -133,7 +129,6 @@ namespace typebeat.Game.Beatmaps.Drawables
 
             TimeSpan lengthTimeSpan = TimeSpan.FromMilliseconds(displayedContent.BeatmapInfo.Length / rate);
             length.Text = "Length: " + lengthTimeSpan.ToFormattedDuration();
-            bpm.Text = " BPM: " + Math.Round(bpmAdjusted, 0);
         }
 
         public void Move(Vector2 pos) => Position = pos;

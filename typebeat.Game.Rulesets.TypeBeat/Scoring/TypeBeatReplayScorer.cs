@@ -432,7 +432,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // POLYGLOT (backlog 331) is identified by the mod in the score, like Literate: no era bit.
             bool polyglot = mods.Any(m => m is TypeBeatModPolyglot);
 
-            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null);
+            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null)
+            {
+                DifficultyWindowScale = StarTimingWindows.ScaleForStars(
+                    TypeBeatDifficultyCalculator.ComputeModel(lyricBeatmap.Lines, mods).Stars),
+            };
 
             // SyllableTiming is NOT selected here, and deliberately not: it is the one era axis
             // that travels in the replay itself (CONFIG frame, bit 2), so ReplayEngineFeed.Apply
@@ -504,6 +508,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // ReplayEngineFeed.Apply clears it on the CONFIG frame and sets it from the extended one,
             // so BOTH arms are selected by the replay itself and this builder chooses neither. The
             // one mod that touches the cap, Puppeteer, exempts it below for both arms alike.
+            // InputEra2 is the second bit of that word and is on the same terms again: the replay
+            // selects it, and this builder chooses neither arm.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the arms below compose in any order. A replay carries

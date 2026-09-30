@@ -23,7 +23,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
 {
     public partial class BasicStats : Container
     {
-        private readonly Statistic length, bpm, circleCount, sliderCount;
+        private readonly Statistic length, circleCount, sliderCount;
 
         private IBeatmapSetInfo beatmapSet;
 
@@ -59,16 +59,12 @@ namespace typebeat.Game.Overlays.BeatmapSet
         {
             if (beatmapInfo == null)
             {
-                bpm.Value = "-";
-
                 length.Value = string.Empty;
                 circleCount.Value = string.Empty;
                 sliderCount.Value = string.Empty;
             }
             else
             {
-                bpm.Value = beatmapInfo.BPM.ToLocalisableString(@"0.##");
-
                 length.Value = TimeSpan.FromMilliseconds(beatmapInfo.Length).ToFormattedDuration();
 
                 if (beatmapInfo is not IBeatmapOnlineInfo onlineInfo) return;
@@ -90,22 +86,17 @@ namespace typebeat.Game.Overlays.BeatmapSet
                 {
                     length = new Statistic(BeatmapStatisticsIconType.Length)
                     {
-                        Width = 0.25f,
+                        Width = 1f / 3,
                         TooltipText = default,
-                    },
-                    bpm = new Statistic(BeatmapStatisticsIconType.Bpm)
-                    {
-                        Width = 0.25f,
-                        TooltipText = BeatmapsetsStrings.ShowStatsBpm
                     },
                     circleCount = new Statistic(BeatmapStatisticsIconType.Circles)
                     {
-                        Width = 0.25f,
+                        Width = 1f / 3,
                         TooltipText = BeatmapsetsStrings.ShowStatsCountCircles
                     },
                     sliderCount = new Statistic(BeatmapStatisticsIconType.Sliders)
                     {
-                        Width = 0.25f,
+                        Width = 1f / 3,
                         TooltipText = BeatmapsetsStrings.ShowStatsCountSliders
                     },
                 },

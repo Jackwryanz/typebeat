@@ -98,6 +98,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return engine;
         }
 
+        /// <summary><see cref="started"/> in the second input era (<see cref="TypingEngine.InputEra2"/>).</summary>
+        private static TypingEngine startedEra2(LyricBeatmap beatmap, bool lossless)
+        {
+            var engine = started(beatmap, lossless);
+            engine.InputEra2 = true;
+            return engine;
+        }
+
         private static IReadOnlyList<TypingCell> cells(TypingEngine engine) => engine.Lines[0].Cells;
 
         /// <summary>Type cells [from, to) correctly, each dead on its own target.</summary>
@@ -232,6 +240,52 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(live.MaxCombo, Is.EqualTo(19), "the skip cost the corrected run nothing at all");
                 Assert.That(live.Combo, Is.EqualTo(19));
                 Assert.That(stored.MaxCombo, Is.EqualTo(18), "the reported shape: one short of the clean run");
+
+                // Everything the axis does not reach: the same cells, the same tiers, no misses, and
+                // no mistype, because nothing was ever typed wrong.
+                foreach (var engine in new[] { live, stored })
+                {
+                    var results = engine.BuildResults();
+
+                    Assert.That(results.Counts[JudgementType.Great], Is.EqualTo(19));
+                    Assert.That(results.Counts[JudgementType.Miss], Is.Zero);
+                    Assert.That(engine.Mistypes, Is.Zero);
+                    Assert.That(results.Accuracy, Is.EqualTo(1.0));
+                }
+            });
+        }
+
+        /// <summary>
+        /// THE REPORT, end to end and through the real gesture composition: a space struck at the head
+        /// of a long word, Ctrl+A, and the line typed out. Live, the run ends on exactly the max combo
+        /// the clean run holds, with the same tier counts and no misses. Under the stored arm it ends
+        /// one short, which is the 919 of 920 the player saw.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void AHeadOfWordSkipFullyCorrectedReachesTheCleanRunsMaxComboUnderInputEra2()
+        {
+            var clean = cleanRun(lossless: true);
+
+            var live = startedEra2(longWordMap(), lossless: true);
+            var stored = startedEra2(longWordMap(), lossless: false);
+
+            foreach (var engine in new[] { live, stored })
+            {
+                typeCells(engine, 0, 3);
+                Assert.That(engine.ProcessKey(' ', 1200), Is.True);
+                Assert.That(correctAndFinish(engine).anchor, Is.EqualTo(3), "the skipped word's head");
+            }
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(clean.MaxCombo, Is.EqualTo(19), "nineteen cells, nineteen increments");
+
+                Assert.That(live.MaxCombo, Is.EqualTo(19), "the skip cost the corrected run nothing at all");
+                Assert.That(live.Combo, Is.EqualTo(19));
+                Assert.That(stored.MaxCombo, Is.EqualTo(19), "no rush cap in this era, so bit 11 has nothing left to decide");
 
                 // Everything the axis does not reach: the same cells, the same tiers, no misses, and
                 // no mistype, because nothing was ever typed wrong.
@@ -447,6 +501,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// A wholly abandoned word anchors at its head. One backspace reopens it and the
+        /// following space, leaving the gap before the word and its correct prefix intact.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void TheCollapseOverAWhollyAbandonedWordLandsOnItsAnchorUnderInputEra2(
+            [Values(false, true)] bool lossless)
+        {
+            var engine = startedEra2(longWordMap(), lossless);
+
+            typeCells(engine, 0, 3);
+            Assert.That(engine.ProcessKey(' ', 1200), Is.True);
+
+            int anchor = engine.RetypeSelectionAnchor;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[3].State, Is.EqualTo(CellState.Abandoned), "the word head is a cell nobody typed");
+                Assert.That(anchor, Is.EqualTo(3), "the head of the skipped word");
+            });
+
+            int erases = eraseBackTo(engine, anchor);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(erases, Is.EqualTo(1), "one press undoes the skip");
+                Assert.That(engine.CaretIndex, Is.EqualTo(anchor), "the collapse ends ON the anchor, never behind it");
+
+                for (int i = 3; i < 13; i++)
+                    Assert.That(cells(engine)[i].State, Is.EqualTo(CellState.Untyped), $"cell {i} was reclaimed on the way past");
+            });
+
+            // Retype starts at the skipped word; the gap before it remains correct.
+            typeCells(engine, anchor, cells(engine).Count);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(engine.Mistypes, Is.Zero, "the correction manufactured no mistake of its own");
+                Assert.That(engine.BuildResults().Counts[JudgementType.WrongChar], Is.Zero);
+
+                foreach (var cell in cells(engine))
+                    Assert.That(cell.State, Is.EqualTo(CellState.Correct));
+            });
+        }
+
+        /// <summary>
         /// The bound on that widening: a word with ANY cell of its own typed still anchors on its
         /// head, because the collapse can stop there. This is the mid-word shape backlog 244 shipped
         /// and it must not move (see <c>WordInputTest.CollapsingASelectionOverASkipRedeemsItsComboClaim</c>
@@ -467,6 +569,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(erases, Is.EqualTo(2), "the gap, then one press over the abandoned run onto 'c'");
+                Assert.That(engine.CaretIndex, Is.EqualTo(3));
+            });
+        }
+
+        /// <summary>
+        /// A partly typed skipped word still anchors on its head. This is the mid-word shape backlog 244 shipped
+        /// and it must not move (see <c>WordInputTest.CollapsingASelectionOverASkipRedeemsItsComboClaim</c>
+        /// and <c>SpaceSkipWordTest.AReclaimedSkipGivesTheComboBackToWhereItWouldHaveBeen</c>).
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void AWordWithACellOfItsOwnTypedStillAnchorsOnItsHeadUnderInputEra2()
+        {
+            var engine = startedEra2(longWordMap(), lossless: true);
+
+            typeCells(engine, 0, 4);            // "ab", the gap, then 'c'
+            Assert.That(engine.ProcessKey(' ', 1300), Is.True, "the space lands mid-word, giving up d..l");
+
+            Assert.That(engine.RetypeSelectionAnchor, Is.EqualTo(3), "the head of the word, which is typed and can be landed on");
+
+            int erases = eraseBackTo(engine, 3);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(erases, Is.EqualTo(2), "undo the skip, then erase the typed word head");
                 Assert.That(engine.CaretIndex, Is.EqualTo(3));
             });
         }

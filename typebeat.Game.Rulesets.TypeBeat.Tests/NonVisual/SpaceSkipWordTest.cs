@@ -65,6 +65,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static LyricBeatmap abCd() => map(line("ab cd", 1000, 4000, 3000,
             unit("ab", 1000, 2000), unit("cd", 2000, 3000)));
 
+        /// <summary><see cref="started"/> in the second input era (<see cref="TypingEngine.InputEra2"/>).</summary>
+        private static TypingEngine startedEra2(LyricBeatmap beatmap, bool spaceSkipsWord)
+        {
+            var engine = new TypingEngine(beatmap) { SpaceSkipsWord = spaceSkipsWord, InputEra2 = true };
+            engine.Update(1000);
+            Assert.AreEqual(0, engine.ActiveLineIndex);
+            return engine;
+        }
+
         private static TypingEngine started(LyricBeatmap beatmap, bool spaceSkipsWord)
         {
             var engine = new TypingEngine(beatmap) { SpaceSkipsWord = spaceSkipsWord };
@@ -411,6 +420,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// Gatekeeper rejects space at a letter even when Space to Skip is enabled. The rejected
+        /// space follows the same wrong-key path as any other incorrect input.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void GatekeeperRejectsSpaceInsteadOfSkippingUnderInputEra2()
+        {
+            var engine = new TypingEngine(catDog()) { SpaceSkipsWord = true, AllowWrongInput = false, InputEra2 = true };
+            engine.Update(1000);
+
+            char? rejected = null;
+            engine.WrongKeyRejected += c => rejected = c;
+
+            Assert.IsTrue(engine.ProcessKey('c', 1000));
+            Assert.IsTrue(engine.ProcessKey('q', 1600));
+            Assert.AreEqual('q', rejected);
+            Assert.AreEqual(1, engine.CaretIndex);
+            Assert.AreEqual(1, engine.ConsecutiveWrongKeys);
+
+            rejected = null;
+            Assert.IsTrue(engine.ProcessKey(' ', 2600));
+
+            Assert.AreEqual(' ', rejected);
+            Assert.AreEqual(1, engine.CaretIndex);
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[1].State);
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[2].State);
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[3].State);
+            Assert.AreEqual(2, engine.ConsecutiveWrongKeys);
+            Assert.IsFalse(engine.CanUndoWordSkip);
+        }
+
+        /// <summary>
         /// Mashing (Relax) rewrites every press into the character the caret expects before the skip
         /// is reached, so with both on there is no word left to abandon. Stated as a test because the
         /// combination is reachable and its outcome should not be an accident.
@@ -471,6 +514,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// From the next word, one backspace re-opens the abandoned letters and erases the typed
+        /// space. The caret lands on the first abandoned cell; the correctly typed prefix survives.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void OneBackspaceUndoesTheSkipAndItsGapUnderInputEra2()
+        {
+            var engine = startedEra2(catDog(), spaceSkipsWord: true);
+            var reclaims = new List<AbandonedCells>();
+            engine.AbandonReclaimed += a => reclaims.Add(a);
+
+            Assert.IsTrue(engine.ProcessKey('c', 1000));
+            Assert.IsTrue(engine.ProcessKey(' ', 2600)); // abandon "at", the space lands on the gap
+
+            var cells = engine.Lines[0].Cells;
+
+            Assert.IsTrue(engine.CanUndoWordSkip);
+            Assert.IsTrue(engine.ProcessBackspace());
+
+            Assert.AreEqual(1, engine.CaretIndex, "the caret lands on the first skipped character");
+            Assert.AreEqual(CellState.Untyped, cells[1].State);
+            Assert.AreEqual(CellState.Untyped, cells[2].State);
+            Assert.AreEqual(CellState.Untyped, cells[3].State, "the skip's space is erased too");
+            Assert.AreEqual(CellState.Correct, cells[0].State, "the correctly typed prefix is preserved");
+            Assert.IsFalse(engine.CanUndoWordSkip);
+
+            Assert.AreEqual(1, reclaims.Count);
+            Assert.AreEqual(new[] { 1, 2 }, reclaims[0].CellIndices);
+        }
+
+        /// <summary>
         /// And the cells really are earnable again: re-typing them produces ordinary judgements with
         /// ordinary points, not the scoring-inert retype an already-earned cell produces. That is the
         /// whole point of withholding the osu result at the skip.
@@ -507,6 +583,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // Four cells typed correctly (c, the gap, a, t), each counted once: the inert retype of
             // 'c' adds nothing, and the reclaimed cells are not double-counted either.
+            Assert.AreEqual(4, results.Counts[JudgementType.Great]);
+            Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
+            Assert.AreEqual(1.0, results.Accuracy);
+        }
+
+        /// <summary>
+        /// And the cells really are earnable again: re-typing them produces ordinary judgements with
+        /// ordinary points, not the scoring-inert retype an already-earned cell produces. That is the
+        /// whole point of withholding the osu result at the skip.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void RetypingAReclaimedWordEarnsRealJudgementsUnderInputEra2()
+        {
+            var engine = startedEra2(catDog(), spaceSkipsWord: true);
+
+            Assert.IsTrue(engine.ProcessKey('c', 1000));
+            Assert.IsTrue(engine.ProcessKey(' ', 2600));
+            Assert.IsTrue(engine.ProcessBackspace());
+
+            var judged = new List<CharJudgement>();
+            engine.CharJudged += j => judged.Add(j);
+
+            Assert.IsTrue(engine.ProcessKey('a', a_target));  // the first abandoned cell, earned for real
+            Assert.IsTrue(engine.ProcessKey('t', t_target));
+
+            var cells = engine.Lines[0].Cells;
+            Assert.AreEqual(CellState.Correct, cells[1].State);
+            Assert.AreEqual(CellState.Correct, cells[2].State);
+            Assert.AreEqual('a', cells[1].TypedChar);
+
+            Assert.AreEqual(2, judged.Count);
+            Assert.AreEqual(JudgementType.Great, judged[0].Type);
+            Assert.IsTrue(judged[0].PointsAwarded > 0, "a reclaimed cell scores; an inert retype would not");
+            Assert.AreEqual(JudgementType.Great, judged[1].Type);
+            Assert.IsTrue(judged[1].PointsAwarded > 0);
+
+            var results = engine.BuildResults();
+
+            // Four cells typed correctly (c, the gap, a, t), each counted once. The reclaimed
+            // cells are not double-counted.
             Assert.AreEqual(4, results.Counts[JudgementType.Great]);
             Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
             Assert.AreEqual(1.0, results.Accuracy);
@@ -554,6 +673,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// The combo the skip broke comes back, on the cell the skip abandoned first, through the
+        /// same snapshot machinery a corrected typo redeems (backlog 140). Typing the whole line out
+        /// after a skip and a full reclaim therefore ends on exactly the combo, and the exact max
+        /// combo, that typing it straight through would have.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void AReclaimedSkipGivesTheComboBackUnderInputEra2()
+        {
+            var straight = startedEra2(catDog(), spaceSkipsWord: true);
+            typeItAll(straight);
+
+            var reclaimed = startedEra2(catDog(), spaceSkipsWord: true);
+            int restored = 0;
+            reclaimed.ComboRestored += streak => restored += streak;
+
+            reclaimed.ProcessKey('c', 1000);
+            reclaimed.ProcessKey(' ', 2600); // skip "at": one break, the streak of 1 snapshotted on 'a'
+            Assert.AreEqual(0, restored);
+
+            reclaimed.ProcessBackspace();     // undo the skip and gap, preserving 'c'
+            Assert.AreEqual(0, restored, "the erase alone restores nothing");
+
+            reclaimed.ProcessKey('a', a_target); // the snapshot cell: the run resumes here
+            Assert.AreEqual(1, restored);
+
+            reclaimed.ProcessKey('t', t_target);
+            reclaimed.ProcessKey(' ', 3000);     // inert retype of the gap
+            reclaimed.ProcessKey('d', 3000);
+            reclaimed.ProcessKey('o', o_target);
+            reclaimed.ProcessKey('g', g_target);
+
+            Assert.AreEqual(7, straight.Combo);
+            Assert.AreEqual(7, reclaimed.Combo, "the run ends where it would have without the skip");
+            Assert.AreEqual(straight.MaxCombo, reclaimed.MaxCombo);
+            Assert.AreEqual(straight.BuildResults().Counts[JudgementType.Great], reclaimed.BuildResults().Counts[JudgementType.Great]);
+            Assert.AreEqual(0, reclaimed.BuildResults().Counts[JudgementType.Miss]);
+        }
+
+        /// <summary>
         /// A word abandoned at the very START of a line has no keypress behind it, and the ordinary
         /// "nothing to erase" answer would make it the one unreclaimable word on the map. One
         /// backspace re-opens it and parks the caret at the head of the line.
@@ -572,6 +733,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(3, engine.CaretIndex);
 
             Assert.IsTrue(engine.ProcessBackspace(), "a reclaim IS a state change, so the press is not inert");
+            Assert.AreEqual(0, engine.CaretIndex);
+
+            var cells = engine.Lines[0].Cells;
+            Assert.AreEqual(CellState.Untyped, cells[0].State);
+            Assert.AreEqual(CellState.Untyped, cells[1].State);
+            Assert.AreEqual(CellState.Untyped, cells[2].State);
+            Assert.AreEqual(new[] { 0, 1, 2 }, reclaims[0].CellIndices);
+
+            Assert.IsTrue(engine.ProcessKey('c', 1000));
+            Assert.AreEqual(CellState.Correct, cells[0].State);
+            Assert.IsTrue(engine.BuildResults().Score > 0);
+        }
+
+        /// <summary>
+        /// A word abandoned at the very START of a line has no keypress behind it, and the ordinary
+        /// "nothing to erase" answer would make it the one unreclaimable word on the map. One
+        /// backspace re-opens it and parks the caret at the head of the line.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void TheFirstWordOfALineIsReclaimableTooUnderInputEra2()
+        {
+            var engine = startedEra2(catDog(), spaceSkipsWord: true);
+            var reclaims = new List<AbandonedCells>();
+            engine.AbandonReclaimed += a => reclaims.Add(a);
+
+            Assert.IsTrue(engine.ProcessKey(' ', 1100)); // nothing typed at all: the whole of "cat" goes
+            Assert.AreEqual(4, engine.CaretIndex);
+
+            Assert.IsTrue(engine.ProcessBackspace(), "one press erases the gap and reclaims the word");
             Assert.AreEqual(0, engine.CaretIndex);
 
             var cells = engine.Lines[0].Cells;
@@ -641,6 +834,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// EVERY abandoned cell leaves the phantom state exactly once, by exactly one of the two
+        /// exits, and the two exits together account for every cell the skips gave up. That is the
+        /// structural half of "no cell is charged twice": the deferred HP cost is charged per cell on
+        /// entry and refunded per cell on exit, so a cell that could exit twice, or not at all, would
+        /// be a cell whose cost was wrong.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void EveryAbandonedCellLeavesThePhantomStateExactlyOnceUnderInputEra2()
+        {
+            var engine = startedEra2(catDog(), spaceSkipsWord: true);
+
+            var entered = new List<int>();
+            var left = new List<int>();
+
+            engine.WordAbandoned += a => entered.AddRange(a.CellIndices);
+            engine.AbandonReclaimed += a => left.AddRange(a.CellIndices);
+            engine.AbandonSealed += a => left.AddRange(a.CellIndices);
+
+            // Skip "cat", come back for it, then skip "dog" and never return.
+            Assert.IsTrue(engine.ProcessKey('c', 1000));
+            Assert.IsTrue(engine.ProcessKey(' ', 2600));
+            Assert.IsTrue(engine.ProcessBackspace());
+            Assert.IsTrue(engine.ProcessKey('a', a_target));
+            Assert.IsTrue(engine.ProcessKey('t', t_target));
+            Assert.IsTrue(engine.ProcessKey(' ', 3000));
+            Assert.IsTrue(engine.ProcessKey('d', 3000));
+            Assert.IsTrue(engine.ProcessKey(' ', 3800)); // abandon the rest of "dog"
+
+            engine.Update(6000);
+
+            Assert.AreEqual(new[] { 1, 2, 5, 6 }, entered);
+            Assert.AreEqual(new[] { 1, 2, 5, 6 }, left, "one exit per cell, and no cell left behind");
+
+            foreach (var cell in engine.Lines[0].Cells)
+                Assert.AreNotEqual(CellState.Abandoned, cell.State, "no cell may still be phantom after the seal");
+
+            Assert.AreEqual(2, engine.BuildResults().Counts[JudgementType.Miss], "only the word nobody came back for");
+        }
+
+        /// <summary>
         /// A line holds its seal open for an abandoned cell exactly as it does for an untyped one, so
         /// the reclaim window runs to the line's own deadline. Without that, a skip near the end of a
         /// line would trip the EARLY seal ("nothing left to type, do not hold the next line up") and
@@ -667,6 +903,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, engine.ActiveLineIndex, "the line must still be open to come back into");
             Assert.IsTrue(engine.ProcessBackspace());
             Assert.IsTrue(engine.ProcessKey(' ', 3100));
+            Assert.IsTrue(engine.ProcessKey('c', 3100));
+
+            Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[3].State);
+
+            // ...and the grace is still bounded: past it the line seals whatever is left.
+            engine.Update(3300);
+            Assert.AreEqual(-1, engine.ActiveLineIndex);
+            Assert.AreEqual(1, engine.BuildResults().Counts[JudgementType.Miss], "only the 'd' nobody got back to");
+        }
+
+        /// <summary>
+        /// A line holds its seal open for an abandoned cell exactly as it does for an untyped one, so
+        /// the reclaim window runs to the line's own deadline. Without that, a skip near the end of a
+        /// line would trip the EARLY seal ("nothing left to type, do not hold the next line up") and
+        /// close the window in the very grace period that exists for finishing.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void AnAbandonedCellHoldsTheLineOpenUnderInputEra2()
+        {
+            // Vocals overrun the line boundary, so the last cell's target sits ON it and the line
+            // carries a 250 ms finishing grace: "cd" spans [2000, 4000] inside a line ending at 3000,
+            // putting c at 2000 and d at 3000.
+            var beatmap = map(line("ab cd", 1000, 3000, 4000,
+                unit("ab", 1000, 2000), unit("cd", 2000, 4000)));
+
+            var engine = startedEra2(beatmap, spaceSkipsWord: true);
+
+            Assert.IsTrue(engine.ProcessKey('a', 1000));
+            Assert.IsTrue(engine.ProcessKey('b', 1500));
+            Assert.IsTrue(engine.ProcessKey(' ', 2000));
+            Assert.IsTrue(engine.ProcessKey(' ', 2100)); // abandon "cd", the rest of the line
+
+            engine.Update(3100); // past the deadline, inside the grace
+
+            Assert.AreEqual(0, engine.ActiveLineIndex, "the line must still be open to come back into");
+            Assert.IsTrue(engine.ProcessBackspace());
             Assert.IsTrue(engine.ProcessKey('c', 3100));
 
             Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[3].State);

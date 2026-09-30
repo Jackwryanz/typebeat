@@ -73,6 +73,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return engine;
         }
 
+        /// <summary><see cref="started"/> in the second input era (<see cref="TypingEngine.InputEra2"/>).</summary>
+        private static TypingEngine startedEra2()
+        {
+            var engine = started();
+            engine.InputEra2 = true;
+            return engine;
+        }
+
         private static IReadOnlyList<TypingCell> cells(TypingEngine engine) => engine.Lines[0].Cells;
 
         /// <summary>Type a prefix of the line correctly, one cell per char, at each cell's target.</summary>
@@ -280,6 +288,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// The first Backspace undoes a skip and its following gap. Ctrl+Backspace then keeps
+        /// going to the start of the word, erasing its correctly typed prefix too.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void ItReclaimsASkippedWordLikeThePlainKeyUnderInputEra2()
+        {
+            var engine = startedEra2();
+            engine.SpaceSkipsWord = true;
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey(' ', 1200), Is.True, "the space abandons the rest of \"ab\" and takes the gap");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[1].State, Is.EqualTo(CellState.Abandoned));
+                Assert.That(cells(engine)[2].State, Is.EqualTo(CellState.Correct));
+                Assert.That(engine.CaretIndex, Is.EqualTo(3), "past the gap, at the head of \"cd\"");
+                Assert.That(engine.WordBackspaceTarget, Is.Zero, "the gap, then the word behind it");
+            });
+
+            int erases = eraseBackTo(engine, engine.WordBackspaceTarget);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(erases, Is.EqualTo(2), "undo the skip, then erase 'a'");
+                Assert.That(engine.CaretIndex, Is.Zero);
+                Assert.That(cells(engine)[1].State, Is.EqualTo(CellState.Untyped), "the abandoned cell was reclaimed");
+                Assert.That(cells(engine)[0].State, Is.EqualTo(CellState.Untyped), "and 'a' was erased");
+            });
+        }
+
         // -----------------------------------------------------------------------------------------
         // Ctrl+A: where the retype starts
         // -----------------------------------------------------------------------------------------
@@ -410,6 +453,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(cells(engine)[2].State, Is.EqualTo(CellState.Wrong));
                 Assert.That(engine.RetypeSelectionAnchor, Is.EqualTo(2), "the gap, so \"ab\" is left alone");
+            });
+        }
+
+        /// <summary>
+        /// A typo on the word gap selects the preceding word too, so retyping begins at its start.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void AGapTypoAnchorsOnThePrecedingWordUnderInputEra2()
+        {
+            var engine = startedEra2();
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey('b', 1500), Is.True);
+            Assert.That(engine.ProcessKey('x', 2000), Is.True, "wrong on the gap");
+            Assert.That(engine.ProcessKey('c', 2000), Is.True);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[2].State, Is.EqualTo(CellState.Wrong));
+                Assert.That(engine.RetypeSelectionAnchor, Is.Zero, "the preceding word is selected with the gap");
             });
         }
 
@@ -729,6 +795,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // The retype starts on the gap, which is inert, and every letter lands on the cell it is
             // meant for. Anchored one cell later, this first press was a typo on the gap.
             foreach (int i in new[] { 2, 3, 4, 5, 6, 7 })
+                Assert.That(engine.ProcessKey(cells(engine)[i].Expected, cells(engine)[i].TargetTime), Is.True);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(engine.Mistypes, Is.Zero, "the correction manufactured no mistake of its own");
+                Assert.That(engine.MaxCombo, Is.EqualTo(8), "eight cells, and the skip cost the corrected run nothing");
+                Assert.That(cells(engine), Has.All.Property(nameof(TypingCell.State)).EqualTo(CellState.Correct));
+            });
+        }
+
+        /// <summary>
+        /// A wholly abandoned word anchors at its head. One backspace reopens it and the
+        /// space after it, while preserving the correctly typed gap before the word.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void CollapsingASelectionOverAWhollyAbandonedWordLandsOnItsAnchorUnderInputEra2()
+        {
+            var engine = startedEra2();
+            engine.SpaceSkipsWord = true;
+            engine.StrictSpaces = true;
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey('b', 1500), Is.True);
+            Assert.That(engine.ProcessKey(' ', 2000), Is.True, "the first gap, typed normally");
+            Assert.That(engine.Combo, Is.EqualTo(3));
+
+            Assert.That(engine.ProcessKey(' ', 2000), Is.True, "at the head of \"cd\": the whole word goes");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[3].State, Is.EqualTo(CellState.Abandoned));
+                Assert.That(cells(engine)[4].State, Is.EqualTo(CellState.Abandoned));
+                Assert.That(engine.CaretIndex, Is.EqualTo(6), "past the second gap, at the head of \"ef\"");
+                Assert.That(engine.RetypeSelectionAnchor, Is.EqualTo(3), "the head of the skipped word");
+            });
+
+            int erases = eraseBackTo(engine, 3);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(erases, Is.EqualTo(1), "one press undoes the skip");
+                Assert.That(engine.CaretIndex, Is.EqualTo(3), "ON the anchor, never behind it");
+                Assert.That(cells(engine)[3].State, Is.EqualTo(CellState.Untyped), "and the abandoned cells were reclaimed on the way");
+                Assert.That(cells(engine)[4].State, Is.EqualTo(CellState.Untyped));
+            });
+
+            // The retype starts at the skipped word.
+            foreach (int i in new[] { 3, 4, 5, 6, 7 })
                 Assert.That(engine.ProcessKey(cells(engine)[i].Expected, cells(engine)[i].TargetTime), Is.True);
 
             Assert.Multiple(() =>

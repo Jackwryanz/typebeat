@@ -2539,6 +2539,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var capped = liveEngine(sprintMap(), new TypeBeatModPuppeteer());
             capped.RushCapExempt = false;
             capped.RushCapCostsAccuracy = false;
+            capped.InputEra2 = false; // the second input era has no cap at all, so it is rolled back too
 
             int cappedBreaks = 0;
             capped.ComboBroken += () => cappedBreaks++;
@@ -2554,6 +2555,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // too, which is what the all-Great assertion proves.
             var mehCapped = liveEngine(sprintMap(), new TypeBeatModPuppeteer());
             mehCapped.RushCapExempt = false;
+            mehCapped.InputEra2 = false;
 
             var mehJudgements = new List<CharJudgement>();
             mehCapped.CharJudged += mehJudgements.Add;

@@ -19,6 +19,7 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Tests.Visual;
 using osuTK.Input;
@@ -278,11 +279,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// A typo on the WORD GAP (backlog 181) is a typo for this gesture too, and it anchors on the
-        /// gap rather than dragging the good word in front of it into the selection.
+        /// A typo on the word gap selects the preceding word as well as the gap.
         /// </summary>
         [Test]
-        public void TestAGapTypoAnchorsOnTheGap()
+        public void TestAGapTypoAnchorsOnThePrecedingWord()
         {
             waitForLine();
 
@@ -294,8 +294,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             recoveryChord(Key.A);
 
-            AddAssert("only the gap onwards is selected", () =>
-                playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { StartCell: 2, EndCell: 4 });
+            AddAssert("the preceding word and gap are selected", () =>
+                playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { StartCell: 0, EndCell: 4 });
         }
 
         /// <summary>
@@ -376,8 +376,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         /// <summary>
         /// The other half of that, and the reason backlog 244 took the gate off the SELECT width:
-        /// word skipping is orthogonal to the input model, so a Gatekeeper player CAN leave cells
-        /// behind, and those cells are exactly what the gesture exists to walk back to. Ctrl+A offers
+        /// a skipped word prepared before switching to Gatekeeper remains recoverable. Strict input
+        /// refuses new mid-word skips, so the fixture creates the skipped cells first. The chord offers
         /// the skipped word, a letter consumes the offer, and the cells are open to be typed again.
         /// </summary>
         [Test]
@@ -385,13 +385,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             waitForLine();
 
-            AddStep("Gatekeeper, with word skipping on", () =>
+            AddStep("prepare a skipped word", () =>
             {
-                engine.AllowWrongInput = false;
+                engine.AllowWrongInput = true;
                 engine.SpaceSkipsWord = true;
             });
 
             type("a ");
+            AddStep("switch to Gatekeeper", () => engine.AllowWrongInput = false);
 
             AddAssert("the rest of \"ab\" was given up", () =>
                 cell(1).State == CellState.Abandoned && cell(2).State == CellState.Correct && engine.CaretIndex == 3);
@@ -430,13 +431,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             waitForLine();
 
-            AddStep("Gatekeeper, with word skipping on", () =>
+            AddStep("prepare a skipped word", () =>
             {
-                engine.AllowWrongInput = false;
+                engine.AllowWrongInput = true;
                 engine.SpaceSkipsWord = true;
             });
 
             type("a ");
+            AddStep("switch to Gatekeeper", () => engine.AllowWrongInput = false);
             recoveryChord(Key.A);
             AddAssert("selection held", () => playfield.CurrentRetypeSelection != null);
 
@@ -508,14 +510,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("each burst's frames share the one timestamp the engine judged them at", () =>
             {
-                var all = frames;
+                var all = frames.Where(f => !f.IsConfig && !f.IsConfigExtended).ToList();
 
-                // Counting the CONFIG header at 0 and its extended twin (backlog 347) at 1: the
-                // Ctrl+Backspace burst is frames 8..10, and the Ctrl+A consume is 16..18 (its two
-                // erases plus the letter that landed at the anchor, all produced by the single press
-                // that consumed the selection).
-                return all[8].Time == all[9].Time && all[9].Time == all[10].Time
-                       && all[16].Time == all[17].Time && all[17].Time == all[18].Time;
+                // Counting inputs only (the CONFIG header and its extended twin are left out): the Ctrl+Backspace burst is frames 6..8, and the
+                // Ctrl+A consume is 14..16 (its two erases plus the letter that landed at the anchor,
+                // all produced by the single press that consumed the selection).
+                return all[6].Time == all[7].Time && all[7].Time == all[8].Time
+                       && all[14].Time == all[15].Time && all[15].Time == all[16].Time;
             });
 
             AddAssert("the recorded run re-derives to the live one", () =>
@@ -940,19 +941,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             var dummy = new Beatmap();
 
-            var replayed = new TypingEngine(new LyricBeatmap
-            {
-                Metadata = new LyricBeatmapMetadata
-                {
-                    Artist = "Test",
-                    Title = "WordInput",
-                    FolderPath = string.Empty,
-                    AudioFileName = string.Empty,
-                    HasWordTiming = true,
-                },
-                Lines = new List<LyricLine> { recordedLine, trailingLine },
-                Granularity = TimingGranularity.Word,
-            });
+            var map = Player.GameplayState.Beatmap;
+            var replayed = TypeBeatReplayScorer.CreateEngine(map,
+                map.HitObjects.OfType<TypeBeatHitObject>().ToList(), Player.GameplayState.Mods, RateWindowRule.ScaledByRate);
 
             foreach (var frame in frames)
             {

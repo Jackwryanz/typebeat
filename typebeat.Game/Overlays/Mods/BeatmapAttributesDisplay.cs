@@ -6,30 +6,24 @@ using System.Linq;
 using System.Threading;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
-using osu.Framework.Extensions.LocalisationExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Input.Events;
-using osu.Framework.Localisation;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.Drawables;
 using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
-using typebeat.Game.Graphics.Sprites;
-using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
-using typebeat.Game.Utils;
 
 namespace typebeat.Game.Overlays.Mods
 {
     /// <summary>
-    /// On the mod select overlay, this provides a local updating view of BPM, star rating and other
+    /// On the mod select overlay, this provides a local updating view of star rating and other
     /// difficulty attributes so the user can have a better insight into what mods are changing.
     /// </summary>
     public partial class BeatmapAttributesDisplay : ModFooterInformationDisplay
     {
         private StarRatingDisplay starRatingDisplay = null!;
-        private BPMDisplay bpmDisplay = null!;
 
         public Bindable<IBeatmapInfo?> BeatmapInfo { get; } = new Bindable<IBeatmapInfo?>();
 
@@ -62,14 +56,6 @@ namespace typebeat.Game.Overlays.Mods
                     Origin = Anchor.CentreLeft,
                     Anchor = Anchor.CentreLeft,
                     Shear = -OsuGame.SHEAR,
-                },
-                bpmDisplay = new BPMDisplay
-                {
-                    Origin = Anchor.CentreLeft,
-                    Anchor = Anchor.CentreLeft,
-                    Shear = -OsuGame.SHEAR,
-                    AutoSizeAxes = Axes.Y,
-                    Width = 75,
                 }
             });
 
@@ -152,10 +138,6 @@ namespace typebeat.Game.Overlays.Mods
             if (BeatmapInfo.Value == null)
                 return;
 
-            double rate = ModUtils.CalculateRateWithMods(Mods.Value);
-
-            bpmDisplay.Current.Value = FormatUtils.RoundBPM(BeatmapInfo.Value.BPM, rate);
-
             Ruleset ruleset = GameRuleset.Value.CreateInstance();
             var displayAttributes = ruleset.GetBeatmapAttributesForDisplay(BeatmapInfo.Value, Mods.Value).ToList();
 
@@ -181,19 +163,5 @@ namespace typebeat.Game.Overlays.Mods
             RightContent.FadeTo(Collapsed.Value && !IsHovered ? 0 : 1, transition_duration, Easing.OutQuint);
         }
 
-        public partial class BPMDisplay : RollingCounter<int>
-        {
-            protected override double RollingDuration => 250;
-
-            protected override LocalisableString FormatCount(int count) => count.ToLocalisableString("0 BPM");
-
-            protected override OsuSpriteText CreateSpriteText() => new OsuSpriteText
-            {
-                Anchor = Anchor.CentreRight,
-                Origin = Anchor.CentreRight,
-                Font = OsuFont.Default.With(size: 20, weight: FontWeight.SemiBold),
-                UseFullGlyphHeight = false,
-            };
-        }
     }
 }

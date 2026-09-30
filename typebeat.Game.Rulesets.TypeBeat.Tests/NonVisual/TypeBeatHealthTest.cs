@@ -605,14 +605,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// <see cref="ReclaimingASkippedWordLeavesHealthWhereTypingItWouldHave"/> in the SECOND INPUT
+        /// ERA (<see cref="TypingEngine.InputEra2"/>): the undo takes a different path into the word
+        /// and ends on the same bar.
+        /// </summary>
+        [Test]
+        public void ReclaimingASkippedWordLeavesHealthWhereTypingItWouldHaveUnderInputEra2()
+        {
+            double reclaimed = playSkipLine(skipTheLastWord: true, inputEra2: true);
+            double clean = playSkipLine(skipTheLastWord: false, inputEra2: true);
+
+            Assert.AreEqual(clean, reclaimed, 1e-9, "the detour is refunded, and pays no bonus");
+        }
+
+        /// <summary>
         /// Plays the first line of <see cref="skipMap"/> from a half-full bar, either straight
         /// through or by abandoning the last word, backspacing straight back into it and typing it
-        /// out. Returns the health left once the line has sealed.
+        /// out. Returns the health left once the line has sealed. <paramref name="inputEra2"/> selects
+        /// the second input era, whose backspace undoes the skip without taking the gap before it.
         /// </summary>
-        private static double playSkipLine(bool skipTheLastWord)
+        private static double playSkipLine(bool skipTheLastWord, bool inputEra2 = false)
         {
             var beatmap = skipMap();
-            var engine = new TypingEngine(beatmap) { SpaceSkipsWord = true };
+            var engine = new TypingEngine(beatmap) { SpaceSkipsWord = true, InputEra2 = inputEra2 };
             var bridge = new HealthBridge(engine);
 
             engine.Update(0);
@@ -625,7 +640,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 engine.Update(1100);
                 Assert.IsTrue(engine.ProcessKey(' ', 1100));
                 Assert.IsTrue(engine.ProcessBackspace(), "one press re-opens the whole abandoned word");
-                Assert.IsTrue(engine.ProcessKey(' ', 1000), "the erased word gap, retyped (scoring-inert)");
+
+                // The era before InputEra2 erased the gap in front of the word on the way; the second
+                // input era's undo stops on the word's head and leaves that gap typed.
+                if (!inputEra2)
+                    Assert.IsTrue(engine.ProcessKey(' ', 1000), "the erased word gap, retyped (scoring-inert)");
             }
 
             var cells = engine.Lines[0].Cells;

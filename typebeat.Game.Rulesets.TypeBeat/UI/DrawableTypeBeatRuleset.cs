@@ -223,8 +223,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             bool polyglot = Mods?.Any(m => m is TypeBeatModPolyglot) == true;
             string? polyglotLanguage = polyglot ? TypeBeatModPolyglot.LanguageFor(Beatmap) : null;
 
+            double stars = TypeBeatDifficultyCalculator.ComputeModel(lyricBeatmap.Lines, Mods?.ToList()).Stars;
             return new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage)
             {
+                DifficultyWindowScale = StarTimingWindows.ScaleForStars(stars),
                 // THE live judgement rule since backlog 179, for every player and (since backlog
                 // 180) every mod stack but Hard Rock: a character typed while its syllable is being
                 // sung is perfectly timed. Backlog 174 shipped this as a debug-only experiment and
@@ -413,6 +415,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // (TypeBeatReplayFrame.CONFIG_EXTENDED), because the first word's carrier was full:
                 // every replay recorded before it re-derives with the combo break at five.
                 RushCapCostsAccuracy = true,
+
+                // THE SECOND INPUT ERA (bit 1 of the second CONFIG word): no rush cap at all, a
+                // backspace that undoes a word skip in one press, Space to Skip only under wrong
+                // input, and the refined retype anchor (TypingEngine.InputEra2 lists them). Set
+                // UNCONDITIONALLY like every era flag here; every replay recorded before it
+                // re-derives on the rules it was played with.
+                InputEra2 = true,
 
                 FlexibleCaretFromMod = legacyFletcher,
 

@@ -148,10 +148,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// line 0's second word is skipped and RECLAIMED (backspaced back into and typed out), line
         /// 1's is skipped and left, so it seals as misses. The CONFIG frame carries the setting, as a
         /// real recording does.
+        ///
+        /// <para><paramref name="inputEra2"/> records the run as the second input era would: the
+        /// extended header carries bit 1, and the reclaim is the ONE backspace that era's undo needs
+        /// (it keeps the earned gap typed, so there is no space to retype). Clear, it is the stored
+        /// shape every replay before that era has.</para>
         /// </summary>
-        private static Replay skipRun(LyricBeatmap map)
+        private static Replay skipRun(LyricBeatmap map, bool inputEra2 = false)
         {
             var frames = new List<ReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, spaceSkipsWord: true) };
+
+            if (inputEra2)
+                frames.Add(TypeBeatReplayFrame.CreateExtendedConfigFrame(0, inputEra2: true));
 
             void press(double time, char c) => frames.Add(new TypeBeatReplayFrame(Math.Round(time), c));
 
@@ -162,8 +170,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             press(first[1], 'b');
             press(first[2], ' '); // ON the gap: an ordinary typed space
             press(first[3] + 100, ' '); // inside "cd": abandons it, and the line is complete
-            press(first[3] + 200, TypeBeatReplayFrame.BACKSPACE); // back into the word, over the gap it lands on
-            press(first[3] + 250, ' '); // the gap again (scoring-inert: it was already earned)
+            if (inputEra2)
+                press(first[3] + 200, TypeBeatReplayFrame.BACKSPACE); // undo the skip, directly onto 'c'; the earned gap stays typed
+            else
+            {
+                press(first[3] + 200, TypeBeatReplayFrame.BACKSPACE); // back into the word, over the gap it lands on
+                press(first[3] + 250, ' '); // the gap again (scoring-inert: it was already earned)
+            }
             press(first[3] + 300, 'c');
             press(first[3] + 400, 'd');
 
@@ -201,7 +214,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     {
                         engine.AllowWrongInput = frame.AllowWrongInput;
                         engine.SpaceSkipsWord = frame.SpaceSkipsWord;
+                        engine.InputEra2 = false;
                     }
+                    else if (frame.IsConfigExtended)
+                        engine.InputEra2 = frame.InputEra2;
                     else
                     {
                         engine.Update(frame.Time);
@@ -368,6 +384,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var rewound = new TypingEngine(map);
             playTo(rewound, replay, past_the_end);
 
+            Assert.That(snapshot(rewound), Is.Not.EqualTo(snapshot(straight)), "fixture must actually distinguish the two states");
+
+            int consumedRewound = ReplayEngineFeed.RebuildTo(rewound, replay.Frames, seekTarget);
+
+            Assert.That(snapshot(rewound), Is.EqualTo(snapshot(straight)));
+            Assert.That(consumedRewound, Is.EqualTo(consumedStraight), "the feeder must resume from the same frame");
+        }
+
+        /// <summary>
+        /// <see cref="RewindLandsOnTheStateAStraightWatchWouldHaveWithASkipInTheRun"/> on a run recorded
+        /// in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>), whose one-press undo is
+        /// selected by the extended header the rebuild has to honour like any other.
+        /// </summary>
+        [TestCase(1780)]
+        [TestCase(2000)]
+        [TestCase(5000)]
+        [TestCase(9000)]
+        [TestCase(11500)]
+        public void RewindLandsOnTheStateAStraightWatchWouldHaveWithASkipInTheRunUnderInputEra2(double seekTarget)
+        {
+            var map = skipBeatmap();
+            var replay = skipRun(map, inputEra2: true);
+
+            var straight = new TypingEngine(map);
+            int consumedStraight = playTo(straight, replay, seekTarget);
+
+            var rewound = new TypingEngine(map);
+            playTo(rewound, replay, past_the_end);
+
+            Assert.That(rewound.Lines[0].Cells[3].State, Is.EqualTo(CellState.Correct), "the one-press undo reclaimed the word");
             Assert.That(snapshot(rewound), Is.Not.EqualTo(snapshot(straight)), "fixture must actually distinguish the two states");
 
             int consumedRewound = ReplayEngineFeed.RebuildTo(rewound, replay.Frames, seekTarget);

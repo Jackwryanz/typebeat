@@ -156,7 +156,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // the recorder writes straight after this one. So a replay recorded before the second
                 // carrier existed re-derives with every second-word era off, exactly as played, even
                 // on an engine the live factory built with those flags on (the watch path).
-                engine.RushCapCostsAccuracy = false;
+                ClearExtendedEras(engine);
 
                 // WallClockFrames (backlog 256, bit 9) is deliberately NOT applied to anything here,
                 // and it is the only bit on the header that is not. Every bit above selects a rule
@@ -174,7 +174,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // no tick, clobbered from the frame. RushCapCostsAccuracy (bit 0) decides both what
                 // an over-cap press costs (its judgement, awarded Meh, rather than the combo) and
                 // where the cap is (six rather than five), so it is applied before any keystroke.
+                // InputEra2 (bit 1) is the input era that removed the rush cap outright and changed
+                // how a word skip, a Gatekeeper space and a retype selection behave (see
+                // TypeBeatReplayFrame's remarks for the full list); it is applied here for the same
+                // reason, before the first keystroke it could move.
                 engine.RushCapCostsAccuracy = frame.RushCapCostsAccuracy;
+                engine.InputEra2 = frame.InputEra2;
                 return;
             }
 
@@ -201,6 +206,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// ASCII). Everything below it is a sentinel, known or not yet known.
         /// </summary>
         private const char first_typeable_code_point = ' ';
+
+        /// <summary>
+        /// Clear every era flag the SECOND flags word (<see cref="TypeBeatReplayFrame.CONFIG_EXTENDED"/>)
+        /// carries, which is what a replay with no extended header decodes to. Called on every CONFIG
+        /// frame, and by the watch path before it primes a newly attached replay, so an engine the live
+        /// factory built with these flags on never judges a stored run under them by accident.
+        /// </summary>
+        public static void ClearExtendedEras(TypingEngine engine)
+        {
+            engine.RushCapCostsAccuracy = false;
+            engine.InputEra2 = false;
+        }
 
         /// <summary>
         /// Re-derive engine state at <paramref name="time"/> from scratch, by resetting and replaying

@@ -3,12 +3,10 @@
 
 using System.Linq;
 using osu.Framework.Allocation;
-using osu.Framework.Bindables;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
-using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -16,7 +14,6 @@ using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit;
 using osuTK;
-using osuTK.Graphics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
@@ -32,6 +29,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     public partial class ActiveLineDetailPanel : CompositeDrawable
     {
         [Resolved]
+        private EditorTimingSettings timingSettings { get; set; } = null!;
+
+        [Resolved]
+        private BindableBeatDivisor beatDivisor { get; set; } = null!;
+
+        private double gridTime => timingSettings.Snap(editorClock.CurrentTime, editorBeatmap.ControlPointInfo, beatDivisor.Value);
+
+        [Resolved]
         private EditorBeatmap editorBeatmap { get; set; } = null!;
 
         [Resolved]
@@ -41,6 +46,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private EditorClock editorClock { get; set; } = null!;
 
         private FreestyleTextFlow header = null!;
+        private OsuSpriteText originalHeader = null!;
         private OsuSpriteText timing = null!;
         private RoundedButton addWordButton = null!;
         private RoundedButton removeWordButton = null!;
@@ -104,10 +110,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             // the button was dropped to declutter the row.
                             // Copy/paste timing stays on the standard ^C/^V hotkeys
                             // (LyricComposeScreen.Copy/Paste); the buttons were dropped.
-                            // The line row carries six controls rather than the word row's four, so
-                            // its action buttons are a little narrower: at a 1366-wide window the
-                            // panel has room for exactly this, and the mode toggles must not be the
-                            // thing that gets squeezed off the right edge.
                             actionRow("line", new[]
                             {
                                 // Named for what they make; WHERE is in the tooltip (the playhead, the
@@ -116,12 +118,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 actionButton("split line (S)", splitAtSelectedWord, line_button_width, "Splits the line in two at the selected word"),
                                 actionButton("merge next (M)", mergeNext, line_button_width),
                                 actionButton("delete line", deleteLine, line_button_width),
-                            }, new Drawable[]
-                            {
-                                // The two drag magnets, in the top-right corner: they are modes,
-                                // not actions, so they are kept well away from the action group.
-                                new SnapToggleButton("snap to caret", state.SnapToCaret),
-                                new SnapToggleButton("snap to grid", state.SnapToGrid),
                             }),
                         },
                         new Drawable[]
@@ -139,6 +135,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                     // slots shimmer here in the freestyle colour exactly as they
                                     // will in gameplay.
                                     header = new FreestyleTextFlow(18, TypeBeatStyle.TypedChar),
+                                    originalHeader = new OsuSpriteText
+                                    {
+                                        Font = TypeBeatStyle.Lyric(18),
+                                        Colour = TypeBeatStyle.TypedChar,
+                                        Alpha = 0,
+                                    },
                                     timing = new OsuSpriteText
                                     {
                                         Font = TypeBeatStyle.Mono(13),
@@ -186,9 +188,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Width of the four LINE action buttons (see the note where they are built).</summary>
         private const float line_button_width = 100;
 
-        /// <summary>Width of the two mode toggles, which carry a smaller label font to match.</summary>
-        private const float toggle_width = 92;
-
         private static RoundedButton actionButton(string text, System.Action action, float width = 108, string? tooltip = null) => new RoundedButton
         {
             Text = text,
@@ -200,11 +199,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// One categorised action row: a small caption ("line" / "word") then its buttons, flowing
-        /// from the left. <paramref name="rightButtons"/> (when given) form a second group pinned to
-        /// the RIGHT edge of the same row, which is where the mode toggles live so they never read
-        /// as part of the action group.
+        /// from the left. Editing modes live in the shared timing toolbar.
         /// </summary>
-        private static Drawable actionRow(string category, Drawable[] buttons, Drawable[]? rightButtons = null)
+        private static Drawable actionRow(string category, Drawable[] buttons)
         {
             var row = new FillFlowContainer
             {
@@ -229,70 +226,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             row.AddRange(buttons);
 
-            if (rightButtons == null)
-                return row;
-
-            return new Container
-            {
-                RelativeSizeAxes = Axes.Both,
-                Children = new Drawable[]
-                {
-                    row,
-                    new FillFlowContainer
-                    {
-                        Anchor = Anchor.TopRight,
-                        Origin = Anchor.TopRight,
-                        RelativeSizeAxes = Axes.Y,
-                        AutoSizeAxes = Axes.X,
-                        Direction = FillDirection.Horizontal,
-                        Spacing = new Vector2(6, 0),
-                        Children = rightButtons,
-                    },
-                },
-            };
-        }
-
-        /// <summary>
-        /// A session-local on/off toggle: RED background while off, GREEN while on, recoloured from
-        /// its bindable exactly as the bottom bar's armed ruleset button is. Nothing is persisted to
-        /// config: these are per-session editing modes, not settings.
-        /// </summary>
-        private partial class SnapToggleButton : RoundedButton
-        {
-            private readonly BindableBool active;
-
-            private Color4 onColour;
-            private Color4 offColour;
-
-            public SnapToggleButton(string text, BindableBool active)
-            {
-                this.active = active;
-
-                Text = text;
-                Width = toggle_width;
-                Height = 30;
-                Action = active.Toggle;
-            }
-
-            [BackgroundDependencyLoader]
-            private void load(OsuColour colours)
-            {
-                onColour = colours.Green3;
-                offColour = colours.Red3;
-            }
-
-            protected override void LoadComplete()
-            {
-                base.LoadComplete();
-
-                // The panel's own mono face at label size: these are narrower than the action
-                // buttons beside them, and reading as a different KIND of control is the point.
-                SpriteText.Font = TypeBeatStyle.Mono(11);
-
-                // Bound after load: RoundedButton's own loader assigns a default background, which
-                // would otherwise win over a colour set in the constructor.
-                active.BindValueChanged(_ => BackgroundColour = active.Value ? onColour : offColour, true);
-            }
+            return row;
         }
 
         protected override void Update()
@@ -311,6 +245,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             if (line == null || !live)
             {
+                header.Alpha = 1;
+                originalHeader.Alpha = 0;
                 // A BLANK map (an audio-only import) has no lines at all, so "click one" would be
                 // advice about something that does not exist: point at the two ways to author the
                 // very first line instead.
@@ -326,13 +262,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // outside the pass, its lyric goes away with the rest until the pass ends.
             if (state.HiddenByTapScope(line))
             {
+                header.Alpha = 1;
+                originalHeader.Alpha = 0;
                 header.Text = "tap timing: timing another section";
                 timing.Text = string.Empty;
                 return;
             }
 
             var l = line.Line;
-            header.Text = $"line {line.LineIndex + 1}: {l.RawText}";
+            string? original = state.ShowOriginalLyrics.Value ? TypeBeatEditorOperations.OriginalCaption(l) : null;
+            header.Alpha = original == null ? 1 : 0;
+            originalHeader.Alpha = original == null ? 0 : 1;
+
+            if (original == null)
+                header.Text = $"line {line.LineIndex + 1}: {l.RawText}";
+            else
+                originalHeader.Text = $"line {line.LineIndex + 1}: {original}";
 
             // Freestyle authoring feedback: the preview above shimmers the slots, this states the
             // count outright so a stray '&' is impossible to miss.
@@ -345,7 +290,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         private void addAtPlayhead()
         {
-            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, editorClock.CurrentTime);
+            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, gridTime);
 
             if (added != null)
                 state.SelectedLine.Value = added;
@@ -432,7 +377,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             editorBeatmap.BeginChange();
 
             foreach (int i in targets)
-                TypeBeatEditorOperations.AddSyllableBoundary(editorBeatmap, line, i, editorClock.CurrentTime);
+                TypeBeatEditorOperations.AddSyllableBoundary(editorBeatmap, line, i, gridTime);
 
             editorBeatmap.EndChange();
         }
@@ -479,7 +424,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             editorBeatmap.BeginChange();
 
             foreach (int i in targets)
-                TypeBeatEditorOperations.InsertWordPause(editorBeatmap, line, i, editorClock.CurrentTime);
+                TypeBeatEditorOperations.InsertWordPause(editorBeatmap, line, i, gridTime);
 
             editorBeatmap.EndChange();
         }

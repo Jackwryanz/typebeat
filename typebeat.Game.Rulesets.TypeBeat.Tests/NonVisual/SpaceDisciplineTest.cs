@@ -89,6 +89,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return beatmap;
         }
 
+        /// <summary><see cref="started"/> in the second input era (<see cref="TypingEngine.InputEra2"/>).</summary>
+        private static TypingEngine startedEra2(bool strictSpaces, bool spaceSkipsWord)
+        {
+            var engine = started(strictSpaces, spaceSkipsWord);
+            engine.InputEra2 = true;
+            return engine;
+        }
+
         /// <summary>
         /// An engine with the line active and BOTH input-model eras selected explicitly, never
         /// defaulted: the default is the other era in each case, which is the whole point of them.
@@ -585,6 +593,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(engine.ProcessKey('z', cells(engine)[5].TargetTime), Is.True, "and another in \"moment\"");
 
             Assert.That(engine.RetypeSelectionAnchor, Is.EqualTo(gap), "the gap, so \"this\" is left alone");
+        }
+
+        /// <summary>
+        /// When the earliest typo is on a gap, the selection includes the word preceding it.
+        ///
+        /// <para>The same behaviour in the SECOND INPUT ERA (<see cref="TypingEngine.InputEra2"/>, every
+        /// new live run). The test above pins the era every stored run re-derives on.</para>
+        /// </summary>
+        [Test]
+        public void TheEarliestTypoBeingAGapAnchorsOnThePrecedingWordUnderInputEra2()
+        {
+            var engine = startedEra2(strictSpaces: false, spaceSkipsWord: false);
+
+            typeThis(engine);
+            Assert.That(engine.ProcessKey('m', gapTime(engine)), Is.True, "a typo on the gap, which advances on this arm");
+            Assert.That(engine.ProcessKey('z', cells(engine)[5].TargetTime), Is.True, "and another in \"moment\"");
+
+            Assert.That(engine.RetypeSelectionAnchor, Is.Zero, "the start of \"this\", before its gap");
         }
 
         // -----------------------------------------------------------------------------------------

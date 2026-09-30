@@ -210,10 +210,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// The skip sibling, on <see cref="twoWordMap"/>: type "ab", fumble 'c', give up on the word
         /// with a space (abandoning 'd'), then backspace into it and type both cells out.
+        /// <paramref name="inputEra2"/> selects the second input era's backspace, which undoes the
+        /// skip in one press rather than stepping over it.
         /// </summary>
-        private static (TypingEngine engine, List<int> restored) wordSkippedOverATypoThenReclaimed(ComboClaimRule claim)
+        private static (TypingEngine engine, List<int> restored) wordSkippedOverATypoThenReclaimed(ComboClaimRule claim, bool inputEra2 = false)
         {
-            var engine = new TypingEngine(twoWordMap()) { SpaceSkipsWord = true, ComboClaim = claim };
+            var engine = new TypingEngine(twoWordMap()) { SpaceSkipsWord = true, ComboClaim = claim, InputEra2 = inputEra2 };
             engine.Update(1000);
 
             var restored = new List<int>();
@@ -231,9 +233,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(engine.ProcessKey(' ', 4000), Is.True);
             Assert.That(engine.CaretIndex, Is.EqualTo(5), "the space landed on the word gap");
 
-            // Back into the word (one press reclaims 'd' and erases the typo) and type it out.
-            Assert.That(engine.ProcessBackspace(), Is.True); // erases the typed space
-            Assert.That(engine.ProcessBackspace(), Is.True); // steps over 'd', erases the typo
+            if (inputEra2)
+            {
+                // Undo the skip, then erase the typo and type the word out.
+                Assert.That(engine.ProcessBackspace(), Is.True); // reclaims 'd' and erases the space
+                Assert.That(engine.CaretIndex, Is.EqualTo(3));
+                Assert.That(engine.ProcessBackspace(), Is.True); // erases the typo
+            }
+            else
+            {
+                // Back into the word (one press reclaims 'd' and erases the typo) and type it out.
+                Assert.That(engine.ProcessBackspace(), Is.True); // erases the typed space
+                Assert.That(engine.ProcessBackspace(), Is.True); // steps over 'd', erases the typo
+            }
+
             Assert.That(engine.CaretIndex, Is.EqualTo(2));
 
             Assert.That(engine.ProcessKey('c', 3000), Is.True);
@@ -804,6 +817,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void AWordSkipOverATypoLeavesThatTyposSnapshotAlone()
         {
             (var engine, var restored) = wordSkippedOverATypoThenReclaimed(ComboClaimRule.StreakedBreakWins);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored, Is.EqualTo(new[] { 2 }), "the skip had no streak to take the claim with");
+                Assert.That(engine.Combo, Is.EqualTo(5), "the space, 2 restored at the 'c', then both cells");
+                Assert.That(engine.MaxCombo, Is.EqualTo(5));
+            });
+        }
+
+        /// <summary>
+        /// <see cref="AWordSkipOverATypoLeavesThatTyposSnapshotAlone"/> in the SECOND INPUT ERA
+        /// (<see cref="TypingEngine.InputEra2"/>): the backspace path into the word differs, the
+        /// account it ends on does not.
+        /// </summary>
+        [Test]
+        public void AWordSkipOverATypoLeavesThatTyposSnapshotAloneUnderInputEra2()
+        {
+            (var engine, var restored) = wordSkippedOverATypoThenReclaimed(ComboClaimRule.StreakedBreakWins, inputEra2: true);
 
             Assert.Multiple(() =>
             {

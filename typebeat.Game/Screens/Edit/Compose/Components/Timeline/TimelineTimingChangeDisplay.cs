@@ -3,7 +3,6 @@
 
 using System.Linq;
 using osu.Framework.Allocation;
-using osu.Framework.Bindables;
 using osu.Framework.Caching;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -100,8 +99,6 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
 
             public readonly TimingControlPoint Point;
 
-            private readonly BindableNumber<double> beatLength;
-
             protected OsuSpriteText Label { get; private set; } = null!;
 
             public TimingPointPiece(TimingControlPoint timingPoint)
@@ -115,7 +112,6 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
 
                 Point = timingPoint;
 
-                beatLength = timingPoint.BeatLengthBindable.GetBoundCopy();
             }
 
             [BackgroundDependencyLoader]
@@ -128,7 +124,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
                         RelativeSizeAxes = Axes.Both,
                         Colour = Point.GetRepresentingColour(colours),
                         Masking = true,
-                        CornerRadius = TimelineTickDisplay.TICK_WIDTH / 2,
+                        CornerRadius = 1.5f,
                         Child = new Box
                         {
                             Colour = Color4.White,
@@ -145,10 +141,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
                     }
                 };
 
-                beatLength.BindValueChanged(beatLength =>
-                {
-                    Label.Text = $"{60000 / beatLength.NewValue:n1} BPM";
-                }, true);
+                Label.Text = "timing";
             }
 
             protected override void Update()

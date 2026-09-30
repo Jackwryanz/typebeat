@@ -3444,6 +3444,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var payload = new LyricTimingClipboard.UnitTimingsPayload();
 
             foreach (int i in sorted)
+
             {
                 var unit = line.Units[i];
 
@@ -3466,6 +3467,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         }).ToList(),
                 });
             }
+
 
             return payload;
         }
@@ -3695,6 +3697,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             for (int k = 0; k < count; k++)
             {
+
                 var span = payload.Units[k];
                 var target = units[anchorIndex + k];
 
@@ -3713,6 +3716,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 }
                 else
                     units[anchorIndex + k] = retime(target, anchor + fit(span.Start), anchor + fit(span.End), TimingSource.Explicit, 1);
+
             }
 
             double previousLastEnd = lastUnitEnd(line);
@@ -3735,14 +3739,106 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 UnromanisedWords = line.UnromanisedWords,
             };
             editorBeatmap.Update(hitObject);
+
             promoteToWordGranularity(editorBeatmap);
             // A pasted subdivision has to reach Syllable (and one pasted over the map's last
             // subdivided word with an undivided pattern falls back to Word), as the line paste does.
+
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
             // A pasted run that reaches the last word overwrites its end, so the sung end follows.
             syncSingEndToLastUnit(editorBeatmap, hitObject, previousLastEnd);
             editorBeatmap.EndChange();
             return true;
+        }
+
+        private static LyricTimingClipboard.UnitSpan copyTiming(TimedUnit unit, double origin) => new LyricTimingClipboard.UnitSpan
+        {
+            Start = unit.StartTime - origin,
+            End = unit.EndTime - origin,
+            Chars = unit.Text.Length,
+            Text = unit.Text,
+            Boundaries = unit.SyllableBoundaries.Select(time => time - origin).ToList(),
+            Splits = unit.SyllableSplits.ToList(),
+            Rests = unit.Pauses.Select(pause => new LyricTimingClipboard.RestSpan
+            {
+                Start = pause.StartTime - origin,
+                End = pause.EndTime - origin,
+                SplitChar = pause.SplitChar,
+            }).ToList(),
+        };
+
+        private static TimedUnit pasteTiming(TimedUnit target, LyricTimingClipboard.UnitSpan source, double origin)
+        {
+            // Null means an older span-only clipboard payload. An empty list in a new payload
+            // instead means the source had no such shape, so it clears the target's old shape.
+            var boundaries = source.Boundaries == null
+                ? target.SyllableBoundaries
+                : clampBoundaries(source.Boundaries.Select(offset => origin + offset).ToArray(), target.StartTime, target.EndTime);
+
+            IReadOnlyList<int> splits = source.Boundaries == null
+                ? target.SyllableSplits
+                : source.Text == target.Text && source.Splits != null
+                  && SyllableSegments.IsAuthoredValid(target.Text, boundaries.Count + 1, source.Splits)
+                    ? source.Splits.ToArray()
+                    : Array.Empty<int>();
+
+            IReadOnlyList<WordPause> pauses = source.Rests == null
+                ? target.Pauses
+                : pastedPauses(target, source, origin);
+
+            return new TimedUnit
+            {
+                Text = target.Text,
+                StartTime = target.StartTime,
+                EndTime = target.EndTime,
+                Source = target.Source,
+                Confidence = target.Confidence,
+                SyllableBoundaries = boundaries,
+                SyllableSplits = splits,
+                Pauses = pauses,
+            };
+        }
+
+        private static IReadOnlyList<WordPause> pastedPauses(TimedUnit target, LyricTimingClipboard.UnitSpan source, double origin)
+        {
+            var pauses = new List<WordPause>();
+            int previousCells = 0;
+
+            foreach (var copied in source.Rests!)
+            {
+                int cut = source.Text == target.Text
+                    ? copied.SplitChar
+                    : mapPauseCut(source.Text, copied.SplitChar, target.Text, previousCells);
+
+                if (cut <= 0)
+                    continue;
+
+                previousCells = Typeability.TypeableCount(target.Text.Substring(0, cut));
+                pauses.Add(new WordPause(origin + copied.Start, origin + copied.End, cut));
+            }
+
+            return PausedWord.UsableRests(target.Text, target.StartTime, target.EndTime, pauses);
+        }
+
+        private static int mapPauseCut(string? sourceText, int sourceCut, string targetText, int previousCells)
+        {
+            int sourceCells = Typeability.TypeableCount(sourceText ?? string.Empty);
+            int targetCells = Typeability.TypeableCount(targetText);
+
+            if (sourceCells < 2 || targetCells < 2 || previousCells >= targetCells - 1)
+                return -1;
+
+            int before = Typeability.TypeableCount(sourceText!.Substring(0, Math.Clamp(sourceCut, 0, sourceText.Length)));
+            int wanted = Math.Clamp((int)Math.Round(before * (double)targetCells / sourceCells), previousCells + 1, targetCells - 1);
+            int seen = 0;
+
+            for (int i = 0; i < targetText.Length; i++)
+            {
+                if (Typeability.IsCell(targetText[i]) && ++seen == wanted)
+                    return i + 1;
+            }
+
+            return -1;
         }
 
         #endregion

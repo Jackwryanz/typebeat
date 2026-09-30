@@ -257,6 +257,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             NewlineOnTypedLetter = source.NewlineOnTypedLetter,
             FirstLineLeadIn = source.FirstLineLeadIn,
             RushCapCostsAccuracy = source.RushCapCostsAccuracy,
+            InputEra2 = source.InputEra2,
         };
     }
 }

@@ -3,6 +3,7 @@
 
 using System.Linq;
 using NUnit.Framework;
+using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -49,15 +50,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             using (var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo))
             {
                 var controls = subsection.BuildControls(config);
-                var checkboxes = controls.OfType<SettingsCheckbox>().ToList();
+                var checkboxes = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().ToList();
 
-                Assert.That(checkboxes.Select(c => c.LabelText.ToString()), Is.EqualTo(new[]
+                Assert.That(checkboxes.Select(c => c.Caption.ToString()), Is.EqualTo(new[]
                 {
                     "Space to skip current word",
                     "Manual newlines",
                     "Use map fonts",
                     "Use space error dot",
+                    "Text pop-in",
                     "Show syllable markers",
+                    "Show word pace colours",
                 }));
 
                 // THE WIRING, not a copy of it: flip each setting at the config manager and the
@@ -69,7 +72,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     TypeBeatRulesetSetting.ManualNewlines,
                     TypeBeatRulesetSetting.UseMapFonts,
                     TypeBeatRulesetSetting.UseSpaceErrorDot,
+                    TypeBeatRulesetSetting.TextPopIn,
                     TypeBeatRulesetSetting.ShowSyllableMarkers,
+                    TypeBeatRulesetSetting.ShowPaceColours,
                 };
 
                 for (int i = 0; i < settings.Length; i++)
@@ -86,15 +91,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
 
                 // And the defaults the game ships with, which the move must not have reset either.
-                // Manual newlines and the space error dot both ship ON as of 2026-09-21, and map
-                // fonts apply by default (backlog 291).
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, true }));
+                // Manual newlines, map fonts, the space error dot, syllable markers and pace colours
+                // ship on by default.
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, false, true, true }));
             }
         }
 
         /// <summary>
         /// The cosmetic and input controls the section always had are still there, in order, with the
-        /// four typing behaviours sitting between the keyboard layout and the line's own look. Pinned
+        /// settled typing, lyric, caret, and feedback controls. Pinned
         /// as a whole so a control that silently left the section would be noticed here.
         /// </summary>
         [Test]
@@ -107,31 +112,56 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 var controls = subsection.BuildControls(config);
 
-                Assert.That(controls.Select(c => c switch
+                Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control switch
                 {
-                    // SettingsEnumDropdown<T> derives from SettingsDropdown<T>, so the two caret
-                    // dropdowns and the layout are matched by their type arguments, not by their
-                    // concrete classes.
-                    SettingsCheckbox checkbox => checkbox.LabelText.ToString(),
-                    SettingsSlider<float> slider => slider.LabelText.ToString(),
-                    SettingsDropdown<string> font => font.LabelText.ToString(),
-                    SettingsDropdown<KeyboardLayout> layout => layout.LabelText.ToString(),
-                    SettingsDropdown<CaretStyle> caret => caret.LabelText.ToString(),
+                    FormCheckBox checkbox => checkbox.Caption.ToString(),
+                    FormSliderBar<float> slider => slider.Caption.ToString(),
+                    FormDropdown<string> font => font.Caption.ToString(),
+                    FormDropdown<KeyboardLayout> layout => layout.Caption.ToString(),
+                    FormDropdown<CaretStyle> caret => caret.Caption.ToString(),
                     _ => "?",
                 }), Is.EqualTo(new[]
                 {
-                    "Typing caret style",
-                    "Song playhead style",
                     "Keyboard layout",
                     "Space to skip current word",
                     "Manual newlines",
-                    "Lyric font size",
-                    "Lyric line spacing",
-                    "Typing font",
+
+
                     "Use map fonts",
+                    "Typing font",
+                    "Gameplay font size",
+                    "Lyric line spacing",
+                    "Typing caret style",
+                    "Song playhead style",
+                    "Caret smoothing",
                     "Use space error dot",
+                    "Sung syllable brightness",
+                    "Text pop-in",
+                    "Pop-in amount",
                     "Show syllable markers",
+                    "Show word pace colours",
+                    "Pace colour maximum change",
                 }));
+
+                var popIn = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Text pop-in");
+                Assert.That(popIn.Current.Value, Is.False);
+                popIn.Current.Value = true;
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.TextPopIn), Is.True);
+                config.SetValue(TypeBeatRulesetSetting.TextPopIn, false);
+                Assert.That(popIn.Current.Value, Is.False);
+
+                var amount = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Pop-in amount");
+                Assert.That(amount.Current.Value, Is.EqualTo(5f));
+                amount.Current.Value = 12f;
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.TextPopInAmount), Is.EqualTo(12f));
+                config.SetValue(TypeBeatRulesetSetting.TextPopInAmount, 0f);
+                Assert.That(amount.Current.Value, Is.Zero);
+                config.SetValue(TypeBeatRulesetSetting.TextPopInAmount, 100f);
+                Assert.That(amount.Current.Value, Is.EqualTo(20f), "amount is bounded to the slider range");
+
+                var pace = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Pace colour maximum change");
+                Assert.That(pace.Current.Value, Is.EqualTo(100f));
+                Assert.That(pace.HintText.ToString(), Does.Contain("Defaults to 100%"));
             }
         }
 
@@ -147,12 +177,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             using (var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo))
             {
-                var sliders = subsection.BuildControls(config).OfType<SettingsSlider<float>>().ToList();
-                var size = sliders.Single(s => s.LabelText.ToString() == "Lyric font size");
+                var sliders = subsection.BuildControls(config).OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().ToList();
+                var size = sliders.Single(s => s.Caption.ToString() == "Gameplay font size");
 
-                Assert.That(sliders.IndexOf(size) + 1, Is.EqualTo(sliders.FindIndex(s => s.LabelText.ToString() == "Lyric line spacing")));
+                Assert.That(sliders.IndexOf(size) + 1, Is.EqualTo(sliders.FindIndex(s => s.Caption.ToString() == "Lyric line spacing")));
                 Assert.That(size.KeyboardStep, Is.EqualTo(1f));
-                Assert.That(size.TooltipText.ToString(), Is.EqualTo("Size of the lyric text during gameplay. Applies from the next play."));
+                Assert.That(size.HintText.ToString(), Is.EqualTo("Preferred lyric text size during play. Long lines shrink individually to fit the screen. Applies from the next play."));
 
                 var setting = config.GetBindable<float>(TypeBeatRulesetSetting.LyricFontSize);
                 Assert.That(size.Current.Value, Is.EqualTo(setting.Value));

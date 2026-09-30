@@ -153,7 +153,7 @@ namespace typebeat.Game.Beatmaps.Drawables
         StarRating,
 
         /// <summary>
-        /// Star rating, OD, HP, CS, AR, length, BPM, and max combo.
+        /// Star rating, OD, HP, CS, AR, length, and max combo.
         /// </summary>
         Extended,
     }
