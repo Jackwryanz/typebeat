@@ -79,6 +79,14 @@ namespace typebeat.Game.Beatmaps
                     beatmapInfo.Metadata.Author.OnlineID = res.AuthorID;
                     beatmapInfo.Metadata.UserTags.Clear();
                     beatmapInfo.Metadata.UserTags.AddRange(res.UserTags);
+
+                    // The oldest server sets were uploaded before the [Metadata] Language: line existed, so their
+                    // files decode to Unspecified while the server knows the language. Fill that gap only: a row
+                    // that already holds a language got it from its own file (or an earlier lookup), and the file
+                    // is the authority. The file stamp in BeatmapUpdater.Process runs after this and overwrites
+                    // with whatever the file states, so the order of the two never lets the server win.
+                    if (beatmapInfo.Metadata.Language == BeatmapLanguage.Unspecified && res.Language != BeatmapLanguage.Unspecified)
+                        beatmapInfo.Metadata.Language = res.Language;
                 }
             }
 

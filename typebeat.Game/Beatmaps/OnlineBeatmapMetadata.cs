@@ -63,5 +63,16 @@ namespace typebeat.Game.Beatmaps
         /// The list of tags that users have assigned to this beatmap.
         /// </summary>
         public List<string> UserTags { get; } = [];
+
+        /// <summary>
+        /// The song language the server stores for the beatmap's set, or <see cref="BeatmapLanguage.Unspecified"/>
+        /// when it has none or the source does not carry one (the local metadata cache never does).
+        /// </summary>
+        /// <remarks>
+        /// Only ever fills a gap: <see cref="BeatmapUpdaterMetadataLookup"/> applies it to a row whose language is
+        /// still unspecified, which is what a file uploaded before the <c>[Metadata] Language:</c> line existed
+        /// decodes to. A language the file itself states always wins.
+        /// </remarks>
+        public BeatmapLanguage Language { get; init; }
     }
 }

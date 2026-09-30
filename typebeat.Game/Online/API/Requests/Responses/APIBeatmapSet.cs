@@ -154,6 +154,20 @@ namespace typebeat.Game.Online.API.Requests.Responses
         [JsonProperty(@"language")]
         public BeatmapSetOnlineLanguage Language { get; set; }
 
+        /// <summary>
+        /// The set's song language as the type!beat server stores it (<c>beatmapsets.language</c>), spelled as
+        /// <see cref="BeatmapLanguageExtensions.ToCanonicalName"/> spells it, or empty when the server has none.
+        /// </summary>
+        /// <remarks>
+        /// A separate property and not <see cref="Language"/>, which is osu-web's {id, name} object and is read by
+        /// the listing overlays as such. Its one consumer is the metadata lookup, which fills the language of a
+        /// local row whose file predates the <c>[Metadata] Language:</c> line (see
+        /// <see cref="BeatmapUpdaterMetadataLookup"/>). A response from a server that does not send it (or any
+        /// older response) deserialises to empty, which decodes to <see cref="BeatmapLanguage.Unspecified"/>.
+        /// </remarks>
+        [JsonProperty(@"song_language")]
+        public string SongLanguage { get; set; } = string.Empty;
+
         [JsonProperty(@"current_nominations")]
         public BeatmapSetOnlineNomination[]? CurrentNominations { get; set; }
 
