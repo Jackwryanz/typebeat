@@ -16,6 +16,7 @@ using NUnit.Framework;
 using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.IO;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Import;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.ImportLyrics;
@@ -85,6 +86,120 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(LyricMapImporter.AlignerAnchorMode("[ar:Artist]\n[Lyrics]\nhello\n"), Is.EqualTo("auto"));
             Assert.That(LyricMapImporter.AlignerAnchorMode("hello\nworld\n[00:30.00]\n"), Is.EqualTo("auto"));
             Assert.That(LyricMapImporter.HasAnyLineStamp(""), Is.False);
+        }
+
+        /// <summary>
+        /// The high-accuracy setting reaches the aligner as <c>--quality full</c>, and ONLY then: off
+        /// (the default) adds no quality flag at all, so the run takes the script's own fast default.
+        /// Walked from the setting itself through the service's read of it to the built command line,
+        /// so neither half can drift without this noticing.
+        /// </summary>
+        [Test]
+        public void HighAccuracySettingAddsQualityFullOnlyWhenOn()
+        {
+            string lab = makeLab();
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "ALIGNER_VERSION = \"6\"\n");
+            const string stamped = "[00:01.00] hello\n[00:02.00] world\n";
+
+            using (var config = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
+            {
+                bool off = LyricMapImportService.HighQualityAlignment(config);
+                Assert.That(off, Is.False, "high accuracy is opt-in");
+
+                var fast = LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, off);
+
+                Assert.That(fast, Does.Not.Contain("--quality"));
+                Assert.That(fast, Is.EqualTo(new[] { "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", "ref" }));
+
+                config.SetValue(TypeBeatRulesetSetting.LocalAlignerHighQuality, true);
+                bool on = LyricMapImportService.HighQualityAlignment(config);
+                Assert.That(on, Is.True);
+
+                var full = LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, on);
+
+                Assert.That(full, Is.EqualTo(new[] { "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", "ref", "--quality", "full" }));
+            }
+
+            // No config to read (the service before the cache resolves) must never mean the slow tier.
+            Assert.That(LyricMapImportService.HighQualityAlignment(null), Is.False);
+
+            // The flag rides alongside the others rather than replacing them: a CUDA install on bare
+            // text still gets its device and its auto anchors.
+            File.WriteAllText(Path.Combine(lab, LyricMapImporter.DEVICE_MARKER_FILE), "cuda\n");
+
+            Assert.That(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", "hello\nworld\n", true), Is.EqualTo(new[]
+            {
+                "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--device", "cuda", "--anchors", "auto", "--quality", "full",
+            }));
+        }
+
+        /// <summary>
+        /// The setting must never break an import on an aligner that predates the tiers: version 5
+        /// (every copy a player has installed until they take the update) exits 2 on an unknown
+        /// <c>--quality</c>, which would cost fully stamped lyrics their word timing and fail the
+        /// rest outright. So the flag goes only to version 6 and newer, read off the script itself.
+        /// </summary>
+        [TestCase("ALIGNER_VERSION = \"5\"\n", false)]
+        [TestCase("ALIGNER_VERSION = \"6\"\n", true)]
+        [TestCase("ALIGNER_VERSION = \"12\"\n", true)]
+        [TestCase("ALIGNER_VERSION = \"6b\"\n", false)]
+        [TestCase("# a version-1 script, no constant\n", false)]
+        public void HighAccuracyFlagIsGatedOnTheScriptVersion(string script, bool expectFlag)
+        {
+            string lab = makeLab();
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), script);
+
+            Assert.That(LyricMapImporter.AlignerHasQualityTiers(lab), Is.EqualTo(expectFlag));
+
+            var args = LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", "[00:01.00] hello\n", true);
+
+            if (expectFlag)
+                Assert.That(args.TakeLast(2), Is.EqualTo(new[] { "--quality", "full" }));
+            else
+                Assert.That(args, Is.EqualTo(new[] { "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", "ref" }));
+
+            // The notice for the old-script case must not claim a stage of the import display.
+            Assert.That(ImportProgressParser.Parse(LyricMapImporter.HIGH_QUALITY_NEEDS_UPDATE).Stage, Is.Null);
+        }
+
+        /// <summary>
+        /// A setup script that ends with its own "setup failed: WHAT; ADVICE." sentence gets that
+        /// sentence shown (without the prefix and the period), since it says what to do; the raw
+        /// detail lines after it stay in the log. Output with no such line keeps the generic text.
+        /// </summary>
+        [Test]
+        public void SetupFailureSentenceIsTheScriptsOwn()
+        {
+            Assert.That(LyricMapImporter.SetupFailureSentence(
+                    "installing torch ($Device) - this is the big download... | error: no solution found | "
+                    + "setup failed: installing torch failed; check your internet connection and retry, or install the aligner later from Settings. | "
+                    + "  detail: exit code 1; the tool's own output is above"),
+                Is.EqualTo("installing torch failed; check your internet connection and retry, or install the aligner later from Settings"));
+
+            Assert.That(LyricMapImporter.SetupFailureSentence("py.exe : No suitable Python runtime found"), Is.Null);
+            Assert.That(LyricMapImporter.SetupFailureSentence(""), Is.Null);
+            Assert.That(LyricMapImporter.SetupFailureSentence("setup failed: ."), Is.Null);
+        }
+
+        [Test]
+        public async Task BootstrapFailureShowsTheScriptsOwnSentence()
+        {
+            string lab = makeLab();
+            File.WriteAllText(Path.Combine(lab, "setup.ps1"),
+                "Write-Output 'installing torch...'\n"
+                + "[Console]::Error.WriteLine('setup failed: installing torch failed; check your internet connection and retry, or install the aligner later from Settings.')\n"
+                + "[Console]::Error.WriteLine('  detail: exit code 1')\n"
+                + "exit 1\n");
+            File.WriteAllText(Path.Combine(lab, "setup.sh"),
+                "echo 'installing torch...'\n"
+                + "echo 'setup failed: installing torch failed; check your internet connection and retry, or install the aligner later from Settings.' >&2\n"
+                + "echo '  detail: exit code 1' >&2\n"
+                + "exit 1\n");
+
+            var result = await LyricMapImporter.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Error, Is.EqualTo("installing torch failed; check your internet connection and retry, or install the aligner later from Settings"));
         }
 
         [Test]

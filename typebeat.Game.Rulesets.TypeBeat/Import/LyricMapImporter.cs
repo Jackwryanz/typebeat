@@ -307,6 +307,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// </summary>
         private const string setup_failed_message = "the aligner setup could not finish (check your internet connection and retry; the details are in the game log)";
 
+        private const string setup_failed_prefix = "setup failed: ";
+
+        /// <summary>
+        /// The plain sentence setup.ps1 / setup.sh end a failed run with ("setup failed: WHAT;
+        /// ADVICE."), as a bare clause for the install surfaces to wrap: the prefix and the trailing
+        /// period dropped. It says what actually failed and what to do about it (close whatever holds
+        /// the folder, install uv yourself), which the generic <see cref="setup_failed_message"/>
+        /// cannot. Null when the output tail has no such line (an older script, or one that died
+        /// before it could say anything), so the caller falls back to the generic text. The raw
+        /// "detail:" lines after the sentence stay in the log only.
+        /// </summary>
+        /// <param name="tail">The last output lines joined by " | ", as RunProcessAsync returns them.</param>
+        public static string? SetupFailureSentence(string tail)
+        {
+            string? line = tail.Split(" | ").Select(l => l.Trim()).LastOrDefault(l => l.StartsWith(setup_failed_prefix, StringComparison.Ordinal));
+
+            if (line == null)
+                return null;
+
+            string sentence = line.Substring(setup_failed_prefix.Length).TrimEnd().TrimEnd('.').Trim();
+            return sentence.Length > 0 ? sentence : null;
+        }
+
         /// <summary>
         /// One-time environment bootstrap: runs the component's setup script (venv + pinned packages,
         /// a multi-GB first-time download). No-op when a COMPLETED install exists (venv python plus
@@ -401,11 +424,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return LyricImportResult.Fail("environment setup cancelled");
 
             // The script's raw output (a PowerShell error record, a uv or pip traceback) is for the
-            // log, not the player: they get one plain sentence and the log keeps the detail.
+            // log, not the player: they get one plain sentence and the log keeps the detail. The
+            // sentence is the script's own when it wrote one (see SetupFailureSentence), else ours.
             if (exitCode != 0)
             {
                 Logger.Log($"Aligner environment setup exited with code {exitCode}: {tail}", LoggingTarget.Runtime, LogLevel.Important);
-                return LyricImportResult.Fail(setup_failed_message);
+                return LyricImportResult.Fail(SetupFailureSentence(tail) ?? setup_failed_message);
             }
 
             if (!EnvironmentReady(lyricLabDir))
@@ -572,7 +596,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string audioPath, string? lyricsPath, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token,
-            bool useAutomaticAlignment = true, IAudioTrackExtractor? audioExtractor = null, string? language = null)
+            bool useAutomaticAlignment = true, IAudioTrackExtractor? audioExtractor = null, string? language = null,
+            bool highQualityAlignment = false)
         {
             if (!File.Exists(audioPath))
                 return LyricImportResult.Fail($"audio file not found: {audioPath}");
@@ -641,7 +666,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             (LyricImportResult result, string? timing) = await ProduceTimingJsonAsync(
                 effectiveAudioPath, lyricsContent, artist, title, configuredLyricLabPath, startDirectories, progress, token, useAutomaticAlignment,
-                language).ConfigureAwait(false);
+                language, highQualityAlignment).ConfigureAwait(false);
 
             if (!result.Success || timing == null)
                 return result;
@@ -669,12 +694,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// </summary>
         /// <remarks>The optional language is the one non-Latin lyrics are romanised under (backlog
         /// 330): the map's own when the caller has one, else null to detect it from the lyrics'
-        /// script.</remarks>
+        /// script. <paramref name="highQualityAlignment"/> runs the aligner at its full tier (see
+        /// <see cref="AlignerArguments"/>) and changes nothing on the TTML or line-stamp paths.</remarks>
         public static async Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true,
-            string? language = null)
+            string? language = null, bool highQualityAlignment = false)
         {
             language ??= LyricOriginals.DetectLanguage(new[] { lyricsContent });
 
@@ -745,7 +771,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 try
                 {
                     (LyricImportResult alignerResult, string? timingJson) = await runAlignerAsync(
-                        lyricLabDir!, audioPath, lyricsTemp, artist, title, lyricsContent, progress, token).ConfigureAwait(false);
+                        lyricLabDir!, audioPath, lyricsTemp, artist, title, lyricsContent, highQualityAlignment, progress, token).ConfigureAwait(false);
 
                     if (alignerResult.Success && timingJson != null)
                     {
@@ -835,10 +861,74 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             return LyricImportResult.Fail(REPAIR_SUGGESTION);
         }
 
+        /// <summary>
+        /// The command line handed to the venv's python for one aligner run, script first. Built
+        /// apart from <see cref="runAlignerAsync"/> so a test can read exactly what the aligner would
+        /// be asked to do without a python to run it.
+        ///
+        /// <para><paramref name="highQuality"/> adds <c>--quality full</c>, the tier that listens to
+        /// the song eight times instead of twice, but only when the script in
+        /// <paramref name="lyricLabDir"/> is version 6 or newer (<see cref="AlignerHasQualityTiers"/>).
+        /// An older script rejects the unknown option with exit code 2, which would cost the import
+        /// its word timing, and a player's installed copy stays at its old version until they take
+        /// the offered update. Off, NOTHING is added rather than <c>--quality fast</c>: the script's
+        /// own default is fast, and leaving the flag out keeps the ordinary run's command line
+        /// exactly what an older script already accepts.</para>
+        /// </summary>
+        public static IReadOnlyList<string> AlignerArguments(
+            string lyricLabDir, string audioPath, string lyricsPath, string outDir, string lyricsContent, bool highQuality)
+        {
+            var args = new List<string> { aligner_script, audioPath, lyricsPath, "-o", outDir };
+
+            // Environments built with CUDA torch (device marker "cuda") align on the GPU,
+            // dramatically faster separation/emission on machines with a good NVIDIA card.
+            string deviceMarker = Path.Combine(lyricLabDir, DEVICE_MARKER_FILE);
+
+            if (File.Exists(deviceMarker) && File.ReadAllText(deviceMarker).Trim().Equals("cuda", StringComparison.OrdinalIgnoreCase))
+            {
+                args.Add("--device");
+                args.Add("cuda");
+            }
+
+            // Explicit either way: "ref" as soon as ONE line is stamped (sparse anchors place the
+            // unstamped lines inside their section's window), "auto" only for bare text.
+            args.Add("--anchors");
+            args.Add(AlignerAnchorMode(lyricsContent));
+
+            if (highQuality && AlignerHasQualityTiers(lyricLabDir))
+            {
+                args.Add("--quality");
+                args.Add("full");
+            }
+
+            return args;
+        }
+
+        /// <summary>The first aligner version with evidence tiers (<c>--quality</c>).</summary>
+        public const int QUALITY_TIERS_ALIGNER_VERSION = 6;
+
+        /// <summary>
+        /// Whether the aligner script in <paramref name="lyricLabDir"/> accepts <c>--quality</c>:
+        /// its <see cref="ReadAlignerVersion"/> is a whole number of at least
+        /// <see cref="QUALITY_TIERS_ALIGNER_VERSION"/>. False for anything unreadable, so an
+        /// unknown script gets the command line every version accepts.
+        /// </summary>
+        public static bool AlignerHasQualityTiers(string lyricLabDir)
+            => int.TryParse(ReadAlignerVersion(lyricLabDir), NumberStyles.None, CultureInfo.InvariantCulture, out int version)
+               && version >= QUALITY_TIERS_ALIGNER_VERSION;
+
+        /// <summary>
+        /// Said when the high-accuracy setting is on but the installed aligner predates it. Worded
+        /// to claim no stage in ImportProgressParser (no "align", so not "aligner" either; no
+        /// "anchor", "model" or "unavailable"), so the display holds where it is.
+        /// </summary>
+        public const string HIGH_QUALITY_NEEDS_UPDATE = "high-accuracy mode needs a newer install, update it in Settings > Experimental; "
+                                                        + "this import runs at the normal speed";
+
         /// <summary>Runs the aligner subprocess and returns the produced timing.json text on success.</summary>
         private static async Task<(LyricImportResult Result, string? TimingJson)> runAlignerAsync(
             string lyricLabDir, string audioPath, string lyricsPath, string artist, string title,
-            string lyricsContent, Action<string> progress, CancellationToken token)
+            string lyricsContent, bool highQuality, Action<string> progress, CancellationToken token)
         {
             string python = PythonExeFor(lyricLabDir);
             string outDir = Path.Combine(lyricLabDir, "out", "typebeat_import_" + SanitizeFolderName($"{artist} - {title}"));
@@ -860,32 +950,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string existingPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
             psi.Environment["PATH"] = venvBin + Path.PathSeparator + existingPath;
 
-            psi.ArgumentList.Add(aligner_script);
-            psi.ArgumentList.Add(audioPath);
-            psi.ArgumentList.Add(lyricsPath);
-            psi.ArgumentList.Add("-o");
-            psi.ArgumentList.Add(outDir);
+            foreach (string arg in AlignerArguments(lyricLabDir, audioPath, lyricsPath, outDir, lyricsContent, highQuality))
+                psi.ArgumentList.Add(arg);
 
-            // Environments built with CUDA torch (device marker "cuda") align on the GPU,
-            // dramatically faster separation/emission on machines with a good NVIDIA card.
-            string deviceMarker = Path.Combine(lyricLabDir, DEVICE_MARKER_FILE);
-
-            if (File.Exists(deviceMarker) && File.ReadAllText(deviceMarker).Trim().Equals("cuda", StringComparison.OrdinalIgnoreCase))
-            {
-                psi.ArgumentList.Add("--device");
-                psi.ArgumentList.Add("cuda");
-            }
-
-            // Explicit either way: "ref" as soon as ONE line is stamped (sparse anchors place the
-            // unstamped lines inside their section's window), "auto" only for bare text.
-            string anchorMode = AlignerAnchorMode(lyricsContent);
-            psi.ArgumentList.Add("--anchors");
-            psi.ArgumentList.Add(anchorMode);
-
-            if (anchorMode == "auto")
+            if (AlignerAnchorMode(lyricsContent) == "auto")
                 progress("no line stamps found, using fully automatic alignment (less accurate)");
             else if (!HasLineStamps(lyricsContent))
                 progress("some lines are stamped, aligning the unstamped ones inside their sections");
+
+            // Said up front because the run is several times longer than the player is used to.
+            // Worded to claim no stage in ImportProgressParser (no "align", no "anchor"), so the
+            // display holds on the preparing stage instead of jumping ahead to aligning. An install
+            // older than the tiers runs without the flag (see AlignerArguments), and says why.
+            if (highQuality)
+            {
+                if (AlignerHasQualityTiers(lyricLabDir))
+                    progress("high-accuracy mode on, this import takes about 4x longer");
+                else
+                {
+                    Logger.Log($"High-accuracy alignment is on but the aligner in {lyricLabDir} is version {ReadAlignerVersion(lyricLabDir) ?? "1"}, "
+                               + $"which has no --quality; running its default", LoggingTarget.Runtime, LogLevel.Important);
+                    progress(HIGH_QUALITY_NEEDS_UPDATE);
+                }
+            }
 
             (int exitCode, string tail) = await RunProcessAsync(psi, progress, token).ConfigureAwait(false);
 

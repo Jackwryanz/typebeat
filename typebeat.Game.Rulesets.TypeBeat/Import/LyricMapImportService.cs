@@ -56,13 +56,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             => language == BeatmapLanguage.Unspecified
                 ? Task.FromResult(LyricImportResult.Fail("select a language before importing"))
                 : LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token,
-                    useAutomaticAlignment, language: language.ToCanonicalName());
+                    useAutomaticAlignment, language: language.ToCanonicalName(), highQualityAlignment: HighQualityAlignment(config()));
 
         public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true, string? language = null)
             => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, useAutomaticAlignment,
-                language);
+                language, HighQualityAlignment(config()));
+
+        /// <summary>
+        /// Whether an import runs the aligner at its full tier. Read at the start of each import,
+        /// so a change in Settings applies to the next one. Off when there is no config to read,
+        /// the opposite of <see cref="localAlignerEnabled"/>'s fallback on purpose: a missing config
+        /// must never make every import four times slower. Static over an explicit config so a test
+        /// can pin the setting's effect without resolving this component.
+        /// </summary>
+        internal static bool HighQualityAlignment(TypeBeatRulesetConfigManager? config)
+            => config?.Get<bool>(TypeBeatRulesetSetting.LocalAlignerHighQuality) ?? false;
 
         private TypeBeatRulesetConfigManager? config()
         {

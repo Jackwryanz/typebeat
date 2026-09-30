@@ -14,10 +14,16 @@ cd typebeat-lyriclab
 
 # Fully automatic (plain-text lyrics, no stamps)
 .venv\Scripts\python.exe align_lyrics.py "<song.mp3>" "<lyrics.txt>" --anchors auto -o out\mysong
+
+# Most accurate evidence (about 4x the model time; the game's high-accuracy setting)
+.venv\Scripts\python.exe align_lyrics.py "<song.mp3>" "<lyrics.txt>" --quality full -o out\mysong
 ```
 
-First run per song does Demucs vocal separation (~1 min on this machine, cached
-in `work/`). Re-runs take ~20 s. Everything is CPU-only.
+First run per song does Demucs vocal separation (~1 min on this machine) and
+the emission passes (two int8 passes by default, about 30 s for a 3.5 minute
+song at 6 threads); both are cached in `work/`, so a re-run after nudging a
+stamp takes a few seconds. Everything runs on the CPU unless the environment
+was built with the CUDA wheels (`--device cuda`, which the game passes then).
 
 ### Outputs (`out/<name>/`)
 
@@ -45,14 +51,17 @@ audio there. Words with dotted red underline = low confidence.
 
 ```
 mp3 ─ffmpeg→ wav ─Demucs htdemucs→ vocals ─16 kHz→ wav2vec2 (MMS_FA) CTC emissions
+                                    (--quality: 1, 2, 4 or 8 passes, posteriors averaged)
 lyrics ─normalize (lowercase, num2words, dict chars)→ char targets
-        └────────── torchaudio forced_align (char level) ──────────┘
+        └──── banded CTC Viterbi (char level; the version 6 decoders) ────┘
 char spans → syllables (pyphen + vowel-group fallback) → words → lines
            → end-times extended through voiced audio (RMS gate) → LRC/JSON
 ```
 
 - Emissions are computed in 30 s chunks with 4 s context and stitched exactly
   on the model's 20 ms frame grid (full-song attention would blow up CPU RAM).
+  Since version 6 several such passes ("views") are averaged; see
+  [Evidence tiers](#evidence-tiers---quality-version-6).
 - `*` wildcard tokens between lines absorb unlisted vocals (ad-libs, extra
   hook repeats) so they can't drag real lines off position.
 - **Confidence = margin**, not raw probability: mean of
@@ -62,14 +71,23 @@ char spans → syllables (pyphen + vowel-group fallback) → words → lines
 
 ### Anchor modes (`--anchors`)
 
-- **`ref`** (default when every line has a `[mm:ss.xx]` stamp): each line is
-  aligned only inside exactly `[its stamp, next stamp)`, and the model's word
-  positions are kept whatever their confidence. Version 2: the former
-  0.75 s / 0.5 s slack let repeated syllables latch onto the previous line's
-  tail, and the even-pacing fallback for low-confidence lines was replacing a
-  third of all lines; both lost on the ranked-map corpus (see below). Only a
-  line the aligner cannot place at all is paced from its stamp and flagged
-  `"estimated": true`.
+- **`ref`** (default as soon as ONE line has a `[mm:ss.xx]` stamp; version 6):
+  a first pass aligns each section alone inside `[its stamp, next stamp)`;
+  from its section openers the aligner measures the song's stamp error (the
+  lead: how late confident lines start after their stamps, taken over at least
+  5 openers; the spread of those onsets; openers heard before their stamps;
+  and, from a pass that looks 1 s either side of each window, whether the
+  stamps are LATE, as when a mapper stamps on reaction). Then ONE banded
+  Viterbi over the whole song places every letter: each section's letters
+  live in their window softly (an opener heard before its stamp opens its
+  section's left wall by up to 0.4 s, late stamps open every wall, the window
+  may spill past the next stamp by the lead minus 0.15 s), the first letter
+  of each section is pulled toward stamp + lead, and version 5's even-pacing
+  prior is laid out syllable by syllable. The model's evidence still decides
+  wherever it is clear. Version 2's lesson stands: the former 0.75 s / 0.5 s
+  hard slack let repeated syllables latch onto the previous line's tail, and
+  an even-pacing fallback for low-confidence lines replaced a third of all
+  lines; both lost on the ranked-map corpus (see below).
 - **Garbage-path detector (version 4)**: a `ref` path is also replaced when
   its SHAPE says the model heard nothing: most words sung one letter per
   frame (`crammed`), the whole line under 0.6x the song's median time per
@@ -80,19 +98,127 @@ char spans → syllables (pyphen + vowel-group fallback) → words → lines
   `"estimated": true` and logged with its reason.
   `python align_lyrics.py --self-test-garbage` pins the rules on synthetic
   paths; `--self-test` runs every self-test.
-- **Sparse anchors (version 3)**: `ref` no longer needs every line stamped.
+- **Sparse anchors (version 3)**: `ref` does not need every line stamped.
   Stamp only the section starts: a stamped line opens a section, the
-  unstamped lines after it join it, and the whole section is aligned inside
-  exactly `[its stamp, next stamp)` as one CTC target with `*` between its
-  lines, so the model places the unstamped line starts itself. Lines before
-  the first stamp form a section that opens at 0. A fully stamped file gives
-  byte-identical output to version 2; `ref` is the default as soon as ONE
-  line is stamped.
-- **`auto`**: global pass → lines with margin ≥ 0.25 become anchors → each run
-  of weak lines is re-aligned locally between its anchors → still-dead lines
-  are interpolated char-proportionally across the voiced part of their window,
-  flagged `estimated`.
-- **`none`**: single global pass (research baseline).
+  unstamped lines after it join it, and the model places the unstamped line
+  starts itself. Lines before the first stamp form a section that opens at 0.
+  Since version 6 a section of several lines is a section graph inside the
+  whole-song pass: letter spacing costs, a soft 400 ms minimum gap between
+  lines, and every line the first pass heard confidently as an anchor for the
+  pacing prior of the lines around it.
+- **`auto`** (plain lyrics; version 6): a duration-aware banded Viterbi over
+  the whole song. A first pass measures the song's pace (frames per letter,
+  from its confident lines); a second pass charges gaps inside a line, letters
+  skipping their blank, and voiced audio the `*` between two lines swallows,
+  all at that pace. The `*` charge applies only when the lyric sheet repeats
+  its lines: a sheet that writes each chorus once must be free to skip the
+  unlisted repeats. Voiced audio after the last line earns a small bonus (the
+  lyrics end where the song's singing does), guarded against squeezing lines
+  with no evidence. Lines laid out by a fallback, and lines whose letters'
+  margin is under 0.08, are flagged `"estimated": true`.
+- **`none`**: single global pass (diagnostics).
+
+Both version 6 decoders are bounded in memory and time (linear in song
+length; under 300 MB and 30 s for a 20 minute song) and never raise: the
+stamped one falls back to even pacing per section, the auto one to an even
+layout over the voiced audio. `--self-test-spacing`, `--self-test-late`,
+`--self-test-band`, `--self-test-dup` and `--self-test-even-letters` pin
+their pure parts with the standard library only (`--self-test-pacing`, the
+version 5 name, runs the last); `--self-test` runs every self-test.
+
+## Evidence tiers (`--quality`, version 6)
+
+One MMS_FA pass guesses at what it barely hears, and its chunk seams every
+30 s cost it context. Version 6 averages the posteriors of several passes
+("views") over the same audio. The passes run on a dynamically int8-quantised
+copy of the model (the Linear layers only), which makes each pass about half
+the cost of today's fp32 pass and scores the same as fp32.
+
+| `--quality` | views | model time, 212 s song, 6 / 2 threads | exact / human stamps / `auto`, within 200 ms |
+|---|---|---|---|
+| `single` | one fp32 pass (version 5's) | 26 s / 56 s | 91.69 / 90.58 / 80.08 % |
+| **`fast`** (default) | stem on the stock grid + on a grid shifted 15 s | 29 s / 52 s | **92.20 / 91.07 / 83.11 %** |
+| `mid` (hidden) | + a grid shifted 22.5 s, a loudness-levelled stem | 57 s / 103 s | 92.44 / 91.65 / 84.31 % |
+| `full` | + a grid shifted 7.5 s, levelled + shifted, 150 Hz high-pass, the full mix | 112 s / 206 s | 92.75 / 92.01 / 85.50 % |
+
+(The fused tiers' times include the one-off quantisation, 1.6 s; accuracy
+with the version 6 decoders on the ranked corpus below.) Every view is cached in the work dir,
+named by the audio's content, the view, the precision and, for int8, the
+quantised engine (engines differ in output), so an fp32 fallback never reads
+an int8 entry or the other way round. The torch thread count (`--threads`) is
+deliberately not in the name: int8 output moves with it (words by up to about
+0.5 points on a stamped variant, 1 on `auto`; the per-frame best letter is
+identical), and a re-run at another thread count reuses the views on disk
+rather than paying for them again and moving words by that noise. The count
+that produced a view is stored in its file and reported as `torch_threads`. A
+tier reuses the views a smaller tier cached. The fp32 pass of `single` keeps
+version 5's file name. Cache files are written to a temporary name and renamed
+into place, so a run killed mid-write (the game kills the aligner on cancel)
+leaves nothing truncated; an entry that does not load as a finite matrix is
+logged, deleted and recomputed.
+
+Fallbacks, all logged: on `--device cuda` the same views run in fp32 on the
+GPU (dynamic int8 is a CPU feature); a torch build without a quantised engine
+(ARM builds without qnnpack) runs the same views in fp32 on the CPU (the same
+quality, about twice the time); `--device cuda` without a usable CUDA device
+runs on the CPU. The view count never changes silently. A view that fails
+(other than the stock-grid stem pass), or whose emissions are not finite, is
+logged and the others are fused; a stem digitally silent in 95 % of its frames
+fails the loudness-levelled views that way. The timing.json `engine` block
+records `quality`, the `views` fused, `quant` (`int8` or `fp32`) and, for int8,
+`quant_engine` and `torch_threads` (the count that produced the views; a list
+when the cached views came from different counts).
+
+## Accuracy, version 6 (ranked-map corpus, 2026-09-30)
+
+Same corpus and scorer as below (85 maps, 20,783 word starts). Besides exact
+(`ref`) and human (`href`, 250 ± 120 ms early) stamps: three more human seeds
+(`hrefB`, `hrefC`), stamps late by 80 ± 60 ms (`hlate`), sloppy stamps
+400 ± 200 ms early (`hwide`), and every 2nd / 4th / 8th / a random third of
+the stamps kept (`sref`, `s4ref`, ..., `s3rand`). Word starts within 200 ms:
+
+| variant | version 5 | 6 `single` | **6 `fast`** | 6 `full` |
+|---|---|---|---|---|
+| ref (exact) | 90.84 % | 91.69 % | **92.20 %** | 92.75 % |
+| href (human) | 88.97 % | 90.58 % | **91.07 %** | 92.01 % |
+| sref (every 2nd, exact) | 88.21 % | 90.00 % | **90.91 %** | 91.57 % |
+| shref (every 2nd, human) | 86.69 % | 89.10 % | **90.24 %** | 91.11 % |
+| hlate (late stamps) | 88.07 % | 90.51 % | **91.15 %** | 91.83 % |
+| hwide (sloppy stamps) | 84.90 % | 88.76 % | **89.23 %** | 90.39 % |
+| s4href (every 4th, human) | 83.53 % | 87.11 % | **88.85 %** | 89.56 % |
+| s8href (every 8th, human) | 80.66 % | 84.91 % | **86.52 %** | 88.37 % |
+| `auto` (no stamps) | 66.76 % | 80.08 % | **83.11 %** | 85.50 % |
+
+On `fast` every one of the 14 variants and both halves of a split by set
+gain over version 5, and every bootstrap interval excludes 0 (stamped +1.36
+to +5.87 points, `auto` +16.35). Stamp models never tuned on: stamps 300 ms
+late 67.13 % -> 82.34 % (version 5 vs 6 `single`), drifting late 67.41 % ->
+80.05 %, 600 ms early 79.26 % -> 88.09 %. The two changes are independent:
+the new decoders on version 5's single pass gain on every variant too, and
+the fused evidence gains with version 5's decoders as well.
+
+Known failure modes (measured; none is a crash):
+
+- Voiced non-lyric audio before the vocals (a leaky or unseparated intro)
+  can pull plain lyrics into it, because the RMS voicing gate calls it sung:
+  with 60 s of instrumental before the song, `auto` loses about 4 points of
+  its own score and 5 to 7 of 85 maps collapse (version 5 lost 1.3 to 2.6,
+  from a much lower score). Stamped files are unaffected. Mili's Between Two Worlds
+  (a 136 s voiced intro) collapses in `auto` on fused evidence.
+- An abbreviated lyric sheet (each chorus written once) gains about +6
+  points in `auto` instead of +14.
+- An unheard slow opening can drift late (slow choral songs: VOCES8's Locus
+  Iste loses 3 to 17 points against version 5 on most variants).
+- The `*` between two lines can drag unstamped lines across a long
+  instrumental inside a sparsely stamped section.
+
+Rejected on the same data: the full mix in the middle tier (it helped one
+half of the corpus, not the other), a bonus for starting `auto` lyrics
+early (-0.58), a stamp window spilling with no margin (a trade between exact
+and human stamps), a late-stamp call on 3 openers (false calls on exact
+stamps), one voiced-`*` cap for complete and abbreviated sheets alike.
+Numbers, tables and the porting spec: `bench/exp/v6/` (`FINAL.txt`,
+`EVIDENCE.txt`, `PORTING.txt`).
 
 ## Accuracy, version 2 (ranked-map corpus, 2026-09-28)
 
@@ -170,7 +296,7 @@ costs 5 to 11 points corpus-wide under human stamps.
    each verse and chorus; the rest are placed between the stamps.
 2. Run the aligner (defaults to `ref` mode) → per-word/per-syllable timing.
 3. Open the demo page, click through low-confidence (underlined) words, nudge
-   stamps if needed, re-run (20 s).
+   stamps if needed, re-run (seconds: the separation and emissions are cached).
 4. Ship `<stem>.timing.json` (or `words.lrc`) next to the map.
 
 Game-side integration: current `LrcParser` already reads the plain `.lrc`.
@@ -207,8 +333,11 @@ MMS_FA aligner + htdemucs).
   Japanese maps, romanize first (pykakasi) and align romaji; MMS_FA is
   multilingual, and a typing game wants romaji anyway. Wire-up is ~30 lines.
 - `auto` mode can still misplace lines when near-identical hook lines repeat
-  over sparse evidence (Spectator outro: 3 lines ~9.5 s off, margins ≤ 0.17;
-  low margin marks them for review). Stamps (`ref`) eliminate this class.
+  over sparse evidence, and has the version 6 failure modes listed under its
+  accuracy section (voiced intros, abbreviated sheets); a low margin marks
+  such lines for review. Stamps (`ref`) eliminate this class.
+- The syllable-even pacing prior of `ref` splits syllables with the
+  `--language` pyphen dictionary; only `en_US` is benchmarked.
 - Word *end* times are heuristic (voiced-region extension capped by next word);
   starts are the reliable quantity.
 - `debug_decode.py <wav16k> [start_s] [end_s]` prints what the model hears;

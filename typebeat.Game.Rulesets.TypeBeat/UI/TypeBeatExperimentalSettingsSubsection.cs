@@ -50,6 +50,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private InstallAlignerButton installButton = null!;
 
+        /// <summary>
+        /// The aligner's quality tier, stated as the trade a player is actually making: the time an
+        /// import takes against how well it is timed. The figures describe aligner version 6's full
+        /// tier against its default fast one (eight listening passes against two), measured on the
+        /// ranked corpus: +0.55 to +0.94 words in a hundred within 200 ms on stamped lyrics (fully or
+        /// sparsely), +2.4 on plain ones, and at six threads about 2 minutes against 30 seconds for a
+        /// 4 minute song, both doubling on two. The checkbox sits under "Use local auto-aligner"
+        /// because it means nothing when that one is off. Public so the settings test pins the exact
+        /// wording.
+        /// </summary>
+        public const string HIGH_QUALITY_CAPTION = "High-accuracy alignment (about 4x slower per import)";
+
+        public const string HIGH_QUALITY_HINT = "The aligner listens to the song eight times instead of twice. That times about one more word in a hundred "
+                                                + "correctly on stamped lyrics, and about two more when the lyrics have no timestamps at all. On a 6-core CPU "
+                                                + "a 4 minute song takes roughly 2 minutes to import instead of 30 seconds; on a 2-core machine, about twice that.";
+
         public TypeBeatExperimentalSettingsSubsection(Ruleset ruleset)
             : base(ruleset)
         {
@@ -84,6 +100,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Caption = "Use local auto-aligner",
                     HintText = "Time imported lyrics word by word on this machine when the aligner is installed. Turn off to use imported line timestamps. Nothing is uploaded.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled),
+                }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = HIGH_QUALITY_CAPTION,
+                    HintText = HIGH_QUALITY_HINT,
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.LocalAlignerHighQuality),
                 }),
                 new Container
                 {

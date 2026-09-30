@@ -40,10 +40,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// Everything still on trial in the section, in source order: the sync metric (backlog 251 put
-        /// it behind a switch) and the local auto-aligner. Pinned by their labels because that is the
-        /// only thing a player sees: the bindables behind them deliberately did not move (Realm keys
-        /// stored rows by enum member name), so nothing else here would notice a control quietly going
-        /// missing.
+        /// it behind a switch), the local auto-aligner and its high-accuracy tier. Pinned by their
+        /// labels because that is the only thing a player sees: the bindables behind them deliberately
+        /// did not move (Realm keys stored rows by enum member name), so nothing else here would
+        /// notice a control quietly going missing.
         ///
         /// <para>The four typing behaviours that used to be listed here - space to skip a word, manual
         /// newlines, the space error dot and the syllable markers - have settled and their controls
@@ -69,6 +69,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 {
                     "Show sync metric",
                     "Use local auto-aligner",
+                    "High-accuracy alignment (about 4x slower per import)",
                 }));
 
                 Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>(), Is.Empty, "pop-in controls live in type!beat");
@@ -80,6 +81,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 var syncCheckbox = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Show sync metric");
 
                 Assert.That(syncCheckbox.Current.Value, Is.False);
+
+                // Also OFF: the full tier makes every import about four times slower, a cost the
+                // player opts into. The hint is pinned whole because it is the only place the trade
+                // (accuracy gained, minutes spent) is spelled out.
+                var qualityCheckbox = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>()
+                                              .Single(c => c.Caption.ToString() == TypeBeatExperimentalSettingsSubsection.HIGH_QUALITY_CAPTION);
+
+                Assert.That(qualityCheckbox.Current.Value, Is.False);
+                Assert.That(qualityCheckbox.HintText.ToString(), Is.EqualTo(
+                    "The aligner listens to the song eight times instead of twice. That times about one more word in a hundred "
+                    + "correctly on stamped lyrics, and about two more when the lyrics have no timestamps at all. On a 6-core CPU "
+                    + "a 4 minute song takes roughly 2 minutes to import instead of 30 seconds; on a 2-core machine, about twice that."));
+
+                // Bound to the setting the importer reads, not to a copy: ticking it reaches config.
+                qualityCheckbox.Current.Value = true;
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.LocalAlignerHighQuality), Is.True);
 
                 // The aligner checkbox is meaningless without the installer, so the pair moved together.
                 var installButton = controls.OfType<Container>().Select(c => c.Child).OfType<FormButton>().Single();

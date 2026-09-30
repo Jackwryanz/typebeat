@@ -206,7 +206,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         TextPopIn,
 
         /// <summary>How much smaller upcoming text starts, as a percentage of its full size.</summary>
-        TextPopInAmount
+        TextPopInAmount,
+
+        /// <summary>
+        /// Whether the local auto-aligner runs at its high-accuracy tier (<c>--quality full</c>)
+        /// rather than the script's own default (fast). OFF by default: the full tier listens to the
+        /// song eight times instead of twice, which times about one more word in a hundred correctly
+        /// on stamped lyrics and about two more on lyrics with no stamps at all, but makes every
+        /// import roughly four times slower on a CPU (about two minutes for a four minute song
+        /// instead of thirty seconds at six threads, twice that on two). That is a cost a player
+        /// should choose, not one the game should impose on everybody's first import.
+        ///
+        /// <para>Only consulted when <see cref="LocalAlignerEnabled"/> lets the aligner run at all,
+        /// and it never touches the install: the tier is a per-run flag of the same script, so both
+        /// tiers work off one environment. An installed aligner older than version 6 has no tiers,
+        /// so the flag is then left out (see <c>LyricMapImporter.AlignerArguments</c>).</para>
+        ///
+        /// <para>Appended last, like every new member: Realm stores these rows by member name, so
+        /// order does not matter to it, but appending keeps that true for anything that ever
+        /// casts.</para>
+        /// </summary>
+        LocalAlignerHighQuality
     }
 
     /// <summary>
@@ -326,6 +346,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.LyricOffsetMs, 0.0, -500.0, 500.0, 1.0);
             SetDefault(TypeBeatRulesetSetting.LyricLabPath, string.Empty);
             SetDefault(TypeBeatRulesetSetting.LocalAlignerEnabled, true);
+            SetDefault(TypeBeatRulesetSetting.LocalAlignerHighQuality, false);
             SetDefault(TypeBeatRulesetSetting.CaretStyle, DEFAULT_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.CaretSmoothing, DEFAULT_CARET_SMOOTHING_MS, 0.0f, 50.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.SungCaretStyle, DEFAULT_SUNG_CARET_STYLE);
