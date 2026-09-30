@@ -401,6 +401,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // refused a press made before the line's own activation.
                 FirstLineLeadIn = true,
 
+                // THE RUSH CAP COSTS ACCURACY, NOT COMBO (backlog 347): a press out past the cap
+                // (loosened to six characters by the same change) is awarded Meh and credits combo,
+                // where it used to land on the timing ladder and break the run.
+                //
+                // Set UNCONDITIONALLY, inert under the pinning mod (no cap without FletcherEnabled)
+                // and under Puppeteer (RushCapExempt, applied later by the mod), the same convention
+                // bits 3, 4 and 7 follow.
+                //
+                // An ERA flag, and the first bit of the SECOND CONFIG flags word
+                // (TypeBeatReplayFrame.CONFIG_EXTENDED), because the first word's carrier was full:
+                // every replay recorded before it re-derives with the combo break at five.
+                RushCapCostsAccuracy = true,
+
                 FlexibleCaretFromMod = legacyFletcher,
 
                 // THE ONE MOD FLAG SET HERE THAT IS NOT AN ERA (backlog 231). A stored replay can

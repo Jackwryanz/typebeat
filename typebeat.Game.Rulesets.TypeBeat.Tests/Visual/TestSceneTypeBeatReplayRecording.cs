@@ -115,7 +115,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             // One config header + one frame per effective input, in press order.
             AddAssert("frame sequence recorded", () =>
-                string.Concat(frames.Select(f => f.Character)) == "\0zxa b");
+                string.Concat(frames.Select(f => f.Character)) == "\0\u0001zxa b");
 
             assertCommonRecordingInvariants(syllableEra: true);
         }
@@ -152,7 +152,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("line complete", () => playfield.Engine.IsLineComplete);
 
             AddAssert("frame sequence records the erase", () =>
-                string.Concat(frames.Select(f => f.Character)) == "\0zq\ba b");
+                string.Concat(frames.Select(f => f.Character)) == "\0\u0001zq\ba b");
 
             AddAssert("config frame carries allow-wrong-input on", () => frames[0].IsConfig && frames[0].AllowWrongInput);
 
@@ -194,7 +194,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("press B (correct)", () => InputManager.Key(Key.B));
 
             AddAssert("line complete", () => playfield.Engine.IsLineComplete);
-            AddAssert("frame sequence recorded", () => string.Concat(frames.Select(f => f.Character)) == "\0za b");
+            AddAssert("frame sequence recorded", () => string.Concat(frames.Select(f => f.Character)) == "\0\u0001za b");
 
             // The load-bearing difference, on a cell whose point target is nowhere near the press:
             // 'a' is timed at 75000 and is typed within a second of the line starting, yet it sits
@@ -204,7 +204,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 var line = playfield.Engine.Lines[0];
                 var span = line.Syllables[line.SyllableIndexOf(1)];
-                double pressed = frames[2].Time;
+                double pressed = frames[3].Time;
 
                 return pressed >= span.StartTime
                        && pressed <= span.EndTime
@@ -304,6 +304,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && frames[0].FirstLineLeadIn
                 && playfield.Engine.FirstLineLeadIn);
 
+            // Backlog 347's era, the first bit of the SECOND flags word: the extended header follows
+            // the CONFIG frame directly, at the same time, stamped for EVERY stack. A replay written
+            // before it has no such frame, which reads as the combo break at five.
+            AddAssert("extended config frame follows and records the rush cap costing accuracy", () =>
+                frames[1].IsConfigExtended
+                && frames[1].Time == frames[0].Time
+                && frames[1].RushCapCostsAccuracy
+                && playfield.Engine.RushCapCostsAccuracy
+                && frames.Count(f => f.IsConfigExtended) == 1);
+
             // The recorded time IS the time the cell was judged at. Under the live rule that no
             // longer reads as "target + delta": 'z' OPENS its syllable, so since backlog 247 its
             // judged delta is the recorded time's distance from the span's start (here equal to the
@@ -318,10 +328,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 var line = playfield.Engine.Lines[0];
                 var span = line.Syllables[line.SyllableIndexOf(0)];
 
-                bool inSpan = frames[1].Time >= span.StartTime && frames[1].Time <= span.EndTime;
+                bool inSpan = frames[2].Time >= span.StartTime && frames[2].Time <= span.EndTime;
 
                 return inSpan
-                       && line.Cells[0].JudgedDelta == frames[1].Time - (syllableEra ? span.StartTime : line.Cells[0].TargetTime)
+                       && line.Cells[0].JudgedDelta == frames[2].Time - (syllableEra ? span.StartTime : line.Cells[0].TargetTime)
                        && line.Cells[1].JudgedDelta == (syllableEra ? 0 : frames.First(f => f.Character == 'a').Time - line.Cells[1].TargetTime);
             });
 
@@ -376,6 +386,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                         // delta of every syllable-opening press would be the one this run was NOT
                         // judged under.
                         replayed.FirstCharTiming = frame.FirstCharTiming;
+                        continue;
+                    }
+
+                    // Backlog 347: the second flags word rides its own header frame, straight after
+                    // the first. It is a header, not a keystroke: typed, it would be a wrong key.
+                    if (frame.IsConfigExtended)
+                    {
+                        replayed.RushCapCostsAccuracy = frame.RushCapCostsAccuracy;
                         continue;
                     }
 

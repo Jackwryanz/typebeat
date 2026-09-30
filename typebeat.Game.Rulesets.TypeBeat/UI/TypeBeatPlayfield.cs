@@ -374,6 +374,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // onMistyped does for a wrong keypress. Gated on the mod so the default path is untouched:
             // there every ComboAfter == 0 judgement either maps to a Miss (which breaks osu's combo
             // itself) or is a WrongChar, whose break onMistyped has already carried.
+            //
+            // Since backlog 347 this is the PRE-347 ERA's seam only (a replay without the extended
+            // CONFIG word): under RushCapCostsAccuracy an over-cap press is an ordinary Meh that
+            // credits the engine's combo, so ComboAfter is never 0 on it and this never fires.
             if (Engine.FletcherEnabled && judgement.ComboAfter == 0 && scoreProcessor != null)
                 scoreProcessor.Combo.Value = 0;
         }
@@ -715,6 +719,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                             if (frames[i] is TypeBeatReplayFrame { IsConfig: true } config)
                             {
                                 ReplayEngineFeed.Apply(engine, config, clockRate);
+
+                                // ...and the SECOND header (backlog 347), which the recorder writes
+                                // straight after it: the CONFIG frame has just cleared its flags.
+                                if (i + 1 < frames.Count && frames[i + 1] is TypeBeatReplayFrame { IsConfigExtended: true } extended)
+                                    ReplayEngineFeed.Apply(engine, extended, clockRate);
+
                                 break;
                             }
                         }

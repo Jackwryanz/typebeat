@@ -104,6 +104,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         internal bool HeldWrongBeforeJudged { get; set; }
 
+        /// <summary>
+        /// Whether this cell's ONE awarded judgement was made with the caret out past the rush cap
+        /// under <see cref="TypingEngine.RushCapCostsAccuracy"/> (backlog 347), which awarded it
+        /// <see cref="Scoring.TypeBeatResultMapping.RushCapTier"/> whatever its delta said.
+        ///
+        /// <para>HISTORY, like <see cref="HeldWrongBeforeJudged"/>: set when the cell is first
+        /// judged, never cleared by a backspace, so an inert retype re-derives the same Meh the first
+        /// judgement took rather than re-reading the untouched delta as a Great. Also what the lyric
+        /// display reads to draw the cell in the off-time styling, since the delta alone cannot say
+        /// why the cell was graded Meh.</para>
+        /// </summary>
+        public bool JudgedPastRushCap { get; internal set; }
+
         internal TypingCell(char expected, bool isTypeable, double targetTime)
         {
             Expected = expected;

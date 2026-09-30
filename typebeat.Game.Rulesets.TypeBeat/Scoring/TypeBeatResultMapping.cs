@@ -721,6 +721,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         }
 
         /// <summary>
+        /// The tier a press is AWARDED when it lands with the caret out past the rush cap under
+        /// <see cref="TypingEngine.RushCapCostsAccuracy"/> (backlog 347): the lowest hit tier,
+        /// <see cref="JudgementType.Meh"/>, whatever the clock said. That is the whole of what such a
+        /// press costs now; it credits combo like any other hit.
+        ///
+        /// <para>A min over the ladder, on the same terms as <see cref="AwardedTier"/>: Great and Ok
+        /// move down to Meh, Meh stays, and <see cref="JudgementType.Premature"/> /
+        /// <see cref="JudgementType.Lagging"/> are left alone. Those are already off the ladder (0
+        /// points, and an osu Meh under <see cref="OffTimeRule.MehHit"/>), so lifting one to Meh
+        /// would PAY a press for being both mistimed and out past the cap. The penalty never
+        /// upgrades.</para>
+        ///
+        /// <para>Applied after <see cref="AwardedTier"/>, so a corrected cell that is also over the
+        /// cap takes the lower of the two caps, which is this one. The delta is never touched: the
+        /// sync readouts and the timeline still see the press the player really made.</para>
+        /// </summary>
+        public static JudgementType RushCapTier(JudgementType type)
+            => type is JudgementType.Great or JudgementType.Ok ? JudgementType.Meh : type;
+
+        /// <summary>
         /// Whether a corrected cell's judgement is capped at <see cref="JudgementType.Ok"/>
         /// (backlog 210). The predicate form of <see cref="AwardedTier"/>, for readers that want the
         /// rule rather than the mapping.

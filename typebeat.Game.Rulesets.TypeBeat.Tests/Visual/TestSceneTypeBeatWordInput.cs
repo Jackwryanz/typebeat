@@ -497,10 +497,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // naming the line-skip sentinel here costs this assert nothing and keeps it honest
             // about what a frame may legally carry.
             AddAssert("nothing but existing frame kinds was recorded", () =>
-                frames.All(f => f.IsConfig || f.IsBackspace || f.IsEnter || f.Character is >= 'a' and <= 'z' or ' '));
+                frames.All(f => f.IsConfig || f.IsConfigExtended || f.IsBackspace || f.IsEnter || f.Character is >= 'a' and <= 'z' or ' '));
 
             AddAssert("the frame sequence is the calls the engine actually took", () =>
-                string.Concat(frames.Select(f => f.Character)) == "\0ab cd \b\b\bcd xf\b\be");
+                string.Concat(frames.Select(f => f.Character)) == "\0\u0001ab cd \b\b\bcd xf\b\be");
 
             AddAssert("times are integral and monotonic", () =>
                 frames.All(f => f.Time == Math.Round(f.Time))
@@ -510,11 +510,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 var all = frames;
 
-                // Counting the CONFIG header at 0: the Ctrl+Backspace burst is frames 7..9, and the
-                // Ctrl+A consume is 15..17 (its two erases plus the letter that landed at the anchor,
-                // all produced by the single press that consumed the selection).
-                return all[7].Time == all[8].Time && all[8].Time == all[9].Time
-                       && all[15].Time == all[16].Time && all[16].Time == all[17].Time;
+                // Counting the CONFIG header at 0 and its extended twin (backlog 347) at 1: the
+                // Ctrl+Backspace burst is frames 8..10, and the Ctrl+A consume is 16..18 (its two
+                // erases plus the letter that landed at the anchor, all produced by the single press
+                // that consumed the selection).
+                return all[8].Time == all[9].Time && all[9].Time == all[10].Time
+                       && all[16].Time == all[17].Time && all[17].Time == all[18].Time;
             });
 
             AddAssert("the recorded run re-derives to the live one", () =>

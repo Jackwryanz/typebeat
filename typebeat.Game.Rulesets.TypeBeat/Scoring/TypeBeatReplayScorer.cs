@@ -290,6 +290,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 if (TypeBeatResultMapping.CellResult(judgement.Type, rule, offTimeRule) is HitResult result)
                     cells.Resolve(scoreProcessor, judgement.LineIndex, judgement.CellIndex, result);
 
+                // The pre-347 rush cap's hand-mirrored break (TypeBeatPlayfield.onCharJudged). Under
+                // RushCapCostsAccuracy an over-cap press is an ordinary Meh that credits combo on
+                // both accounts, so it never arrives here with ComboAfter == 0 and this is inert.
                 if (engine.FletcherEnabled && judgement.ComboAfter == 0)
                     scoreProcessor.Combo.Value = 0;
             }
@@ -494,6 +497,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // default is the gate every stored replay's first line opened on (a press before the
             // line's own activation refused), the bit is set for every live stack, and where the
             // first line opens is not a mod's business, so there is nothing to select here.
+            //
+            // RushCapCostsAccuracy (backlog 347) is the first era on the SECOND flags word, the
+            // extended CONFIG frame, and is on the same terms again: the default is the combo break
+            // at a cap of five every stored replay's rushes took, the live stack sets it, and
+            // ReplayEngineFeed.Apply clears it on the CONFIG frame and sets it from the extended one,
+            // so BOTH arms are selected by the replay itself and this builder chooses neither. The
+            // one mod that touches the cap, Puppeteer, exempts it below for both arms alike.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the arms below compose in any order. A replay carries

@@ -106,6 +106,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// THE SECOND CARRIER (backlog 347): its own sentinel, 0x01, distinct from the other three and
+        /// below the typeable surface; its word round-trips on its own bit positions (bit 0 = the rush
+        /// cap costing accuracy) and is never read as first-word bits, nor the first word as its.
+        /// </summary>
+        [Test]
+        public void TheExtendedHeaderIsItsOwnSentinelWithItsOwnWord()
+        {
+            Assert.AreEqual(0x01, TypeBeatReplayFrame.CONFIG_EXTENDED);
+
+            char[] sentinels = { TypeBeatReplayFrame.CONFIG, TypeBeatReplayFrame.CONFIG_EXTENDED, TypeBeatReplayFrame.BACKSPACE, TypeBeatReplayFrame.ENTER };
+            Assert.AreEqual(sentinels.Length, sentinels.Distinct().Count());
+            Assert.Less(TypeBeatReplayFrame.CONFIG_EXTENDED, ' ');
+
+            var set = TypeBeatReplayFrame.CreateExtendedConfigFrame(4321, rushCapCostsAccuracy: true);
+            Assert.AreEqual(TypeBeatReplayFrame.CONFIG_EXTENDED, (char)(int)set.ToLegacy(dummy_beatmap).MouseX!.Value);
+            Assert.AreEqual(1, set.ToLegacy(dummy_beatmap).MouseY, "bit 0 of the second word, and nothing else");
+
+            var decoded = roundTrip(set);
+            Assert.IsTrue(decoded.IsConfigExtended);
+            Assert.IsFalse(decoded.IsConfig);
+            Assert.AreEqual(4321, decoded.Time);
+            Assert.IsTrue(decoded.RushCapCostsAccuracy);
+            Assert.IsFalse(decoded.AllowWrongInput, "value 1 on the second word is not first-word bit 0");
+
+            Assert.IsFalse(roundTrip(TypeBeatReplayFrame.CreateExtendedConfigFrame(0)).RushCapCostsAccuracy, "a clear bit decodes clear");
+            Assert.AreEqual(0, TypeBeatReplayFrame.CreateExtendedConfigFrame(0).ToLegacy(dummy_beatmap).MouseY);
+
+            // The first word carries none of the second: a fully set CONFIG word decodes with the
+            // rush-cap era off, which is what an old replay's header must mean.
+            var everyFirstWordBit = new TypeBeatReplayFrame();
+            everyFirstWordBit.FromLegacy(new LegacyReplayFrame(0, TypeBeatReplayFrame.CONFIG, 131071, ReplayButtonState.None), dummy_beatmap);
+            Assert.IsTrue(everyFirstWordBit.AllowWrongInput);
+            Assert.IsFalse(everyFirstWordBit.RushCapCostsAccuracy);
+
+            // A keystroke frame carries no word on either header's behalf.
+            Assert.AreEqual(0, new TypeBeatReplayFrame(0, 'a').ToLegacy(dummy_beatmap).MouseY);
+        }
+
+        /// <summary>
         /// Every judgement-relevant setting travels in the one flags word, and all two hundred and
         /// fifty-six combinations must survive: bit 0 = allow-wrong-input, bit 1 =
         /// space-skips-word, bit 2 = syllable-span timing (backlog 179), bit 3 =

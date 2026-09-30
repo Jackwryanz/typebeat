@@ -2515,9 +2515,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             double last = 1000 + (60 * (sprint_chars.Length - 1));
 
             // The lead really is unbounded in the only sense that matters here: it grew every press
-            // and finished miles past the cap of five.
-            Assert.Greater(engine.CharsAheadOfPlayhead(last), TypingEngine.FLETCHER_MAX_CHARS_AHEAD * 2,
+            // and finished miles past the cap (at least twice the live cap of six since backlog 347).
+            Assert.GreaterOrEqual(engine.CharsAheadOfPlayhead(last), TypingEngine.FLETCHER_MAX_CHARS_AHEAD * 2,
                 "the burst has to leave the cap far behind, or this is not the reported case");
+
+            // The live stack plays backlog 347's rule, and the exemption reaches it as it reached the
+            // combo break: every Great below is a press the new rule would otherwise have awarded Meh.
+            Assert.IsTrue(engine.RushCapCostsAccuracy, "the live stack judges the rush cap on accuracy");
 
             Assert.AreEqual(sprint_chars.Length, engine.Combo, "the sprint kept its whole run");
             Assert.AreEqual(sprint_chars.Length, engine.MaxCombo);
@@ -2530,24 +2534,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 "every press on the right character judges Great under this mod, which is the whole freeplay decision");
 
             // NON-VACUOUS, and the exact shape of the bug: the identical burst on the identical
-            // engine with only the exemption taken away breaks, once, and never re-arms.
+            // engine with only the exemption taken away breaks, once, and never re-arms. That is the
+            // PRE-347 era (the combo break at five), which is the rule the report was made under.
             var capped = liveEngine(sprintMap(), new TypeBeatModPuppeteer());
             capped.RushCapExempt = false;
+            capped.RushCapCostsAccuracy = false;
 
             int cappedBreaks = 0;
             capped.ComboBroken += () => cappedBreaks++;
 
-            for (int i = 0; i < sprint_chars.Length; i++)
-            {
-                double time = 1000 + (60 * i);
-
-                capped.Update(time);
-                Assert.IsTrue(capped.ProcessKey(sprint_chars[i], time));
-            }
+            sprint(capped);
 
             Assert.AreEqual(1, cappedBreaks, "one break per excursion, and the excursion never ends");
             Assert.AreEqual(0, capped.Combo, "...so the run is dead for the rest of the sprint");
             Assert.Less(capped.MaxCombo, sprint_chars.Length);
+
+            // ...and under the LIVE rule (backlog 347) the unexempted burst keeps its run but pays in
+            // judgement instead: every press out past six is a Meh. The exemption above lifts that
+            // too, which is what the all-Great assertion proves.
+            var mehCapped = liveEngine(sprintMap(), new TypeBeatModPuppeteer());
+            mehCapped.RushCapExempt = false;
+
+            var mehJudgements = new List<CharJudgement>();
+            mehCapped.CharJudged += mehJudgements.Add;
+
+            int mehBreaks = 0;
+            mehCapped.ComboBroken += () => mehBreaks++;
+
+            sprint(mehCapped);
+
+            Assert.AreEqual(0, mehBreaks, "the live rule breaks nothing");
+            Assert.AreEqual(sprint_chars.Length, mehCapped.MaxCombo);
+            Assert.Greater(mehJudgements.Count(j => j.Type == JudgementType.Meh), 0, "the lead is paid for in Mehs");
+
+            static void sprint(TypingEngine typing)
+            {
+                for (int i = 0; i < sprint_chars.Length; i++)
+                {
+                    double time = 1000 + (60 * i);
+
+                    typing.Update(time);
+                    Assert.IsTrue(typing.ProcessKey(sprint_chars[i], time));
+                }
+            }
         }
 
         /// <summary>

@@ -147,7 +147,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <paramref name="flexible"/> true is the shipped stack since backlog 208 and 218 (unpinned
         /// caret, the line-start snap and the bounded rush, exactly what
         /// <c>DrawableTypeBeatRuleset.createEngine</c> builds); false is the engine default, which is
-        /// both the classic pinned game and what the Fletcher MOD asks for today.
+        /// both the classic pinned game and what the Fletcher MOD asks for today. It leaves backlog
+        /// 347's <see cref="TypingEngine.RushCapCostsAccuracy"/> clear, so the rush-cap cases here
+        /// are that era's pins (see the region).
         /// </summary>
         private static TypingEngine engine(LyricBeatmap beatmap, bool flexible)
             => new TypingEngine(beatmap) { FletcherEnabled = flexible, FlexibleLineSnap = flexible, BoundedRush = flexible };
@@ -452,7 +454,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
-        #region Rush cap (5 countable chars)
+        #region Rush cap, the PRE-347 era (5 countable chars, a combo break)
+
+        // Every test in this region runs on engine(..., flexible: true), which leaves
+        // TypingEngine.RushCapCostsAccuracy CLEAR: the era every replay stored before backlog 347
+        // re-derives under (no extended CONFIG header), where the cap is five and crossing it breaks
+        // the combo while the tier is left to the clock. They are kept as that era's pins. The live
+        // rule (the cap at six, an over-cap press awarded Meh and credited combo) is pinned in
+        // RushCapCostsAccuracyTest, beside the carrier that selects between the two.
 
         /// <summary>
         /// The cap is a distance, measured on the caret position AFTER the press: five chars ahead is
@@ -464,6 +473,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void SixthCharAheadBreaksComboOnceAndReArms()
         {
             var typing = engine(denseMap(), flexible: true);
+
+            Assert.IsFalse(typing.RushCapCostsAccuracy, "this region pins the pre-347 era");
+            Assert.AreEqual(TypingEngine.LEGACY_FLETCHER_MAX_CHARS_AHEAD, typing.RushCap);
 
             int comboBreaks = 0;
             typing.ComboBroken += () => comboBreaks++;

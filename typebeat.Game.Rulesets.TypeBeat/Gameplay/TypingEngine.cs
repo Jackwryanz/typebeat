@@ -43,12 +43,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public const double FIRST_LINE_LEAD_MS = 300;
 
         /// <summary>
-        /// Fletcher mod: how many COUNTABLE characters (typeable and not a space, the same currency
-        /// the Flashlight window measures in) the player's caret may sit ahead of the playhead before
-        /// a keypress stops earning combo. The press still lands and still scores; it simply cannot
-        /// build a combo while the caret is out past the cap (see <see cref="FletcherEnabled"/>).
+        /// THE RUSH CAP: how many COUNTABLE characters (typeable and not a space, the same currency
+        /// the Flashlight window measures in) the unpinned caret may sit ahead of the playhead before
+        /// a keypress is penalised (see <see cref="FletcherEnabled"/>). Since backlog 347 the penalty
+        /// is the press's JUDGEMENT (it is awarded Meh and still credits combo, see
+        /// <see cref="RushCapCostsAccuracy"/>), and the cap loosened from five to six with it.
+        ///
+        /// <para>The live value. A run stored before 347 is measured against
+        /// <see cref="LEGACY_FLETCHER_MAX_CHARS_AHEAD"/> instead, and <see cref="RushCap"/> is the one
+        /// place that picks between them, off the same era flag that picks the penalty.</para>
         /// </summary>
-        public const int FLETCHER_MAX_CHARS_AHEAD = 5;
+        public const int FLETCHER_MAX_CHARS_AHEAD = 6;
+
+        /// <summary>
+        /// The rush cap every run stored before backlog 347 was played against: five countable
+        /// characters, past which a press landed and scored on the timing ladder but broke the combo.
+        /// Kept as the era constant a replay whose second CONFIG word is absent re-derives under.
+        /// </summary>
+        public const int LEGACY_FLETCHER_MAX_CHARS_AHEAD = 5;
 
         /// <summary>
         /// Fletcher mod: extra time past a line's normal hard deadline
@@ -1045,8 +1057,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// deadline; the seal is deferred by <see cref="FLETCHER_DRAG_GRACE_MS"/> so the caret is
         /// never yanked off a line mid-word (<see cref="sealPermitted"/>).</item>
         /// <item>CHARACTER-DISTANCE RUSH CAP: a press that puts the caret more than
-        /// <see cref="FLETCHER_MAX_CHARS_AHEAD"/> countable chars ahead of the playhead lands and
-        /// scores as normal but earns no combo.</item>
+        /// <see cref="RushCap"/> countable chars ahead of the playhead lands and is awarded Meh
+        /// whatever its timing (backlog 347, <see cref="RushCapCostsAccuracy"/>), or, in the era
+        /// before that, scores as normal but earns no combo.</item>
         /// </list>
         /// Per-char judgement windows are untouched: rushing reads as early deltas and dragging as
         /// late ones, so accuracy, sync% and the judgement counts report the drift honestly.
@@ -1225,6 +1238,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// that whole divergence class is gone.</para>
         /// </summary>
         public bool RushCapExempt { get; set; }
+
+        /// <summary>
+        /// THE RUSH CAP COSTS ACCURACY, NOT COMBO (backlog 347). With this set, a press that leaves
+        /// the caret more than <see cref="RushCap"/> countable chars past the playhead credits combo
+        /// like any other press (no run break, no discarded restorable claim, no
+        /// <see cref="ComboBroken"/>, <c>max_combo</c> untouched) and its penalty is its JUDGEMENT:
+        /// the cell is awarded Meh whatever its delta says
+        /// (<see cref="Scoring.TypeBeatResultMapping.RushCapTier"/>), the delta itself recorded
+        /// untouched so the sync readouts stay honest, and <see cref="TypingCell.JudgedPastRushCap"/>
+        /// marks the cell so an inert retype re-derives the same Meh and the display can draw it in
+        /// the off-time styling. The cap is still re-evaluated per press, so every character typed
+        /// out past it is a Meh and the first one back inside is judged on its timing. It also
+        /// LOOSENS the cap from <see cref="LEGACY_FLETCHER_MAX_CHARS_AHEAD"/> (5) to
+        /// <see cref="FLETCHER_MAX_CHARS_AHEAD"/> (6), which is the same re-derivation, so one flag
+        /// carries both.
+        ///
+        /// <para>Why: under span timing a press far ahead by COUNT could still be judged Great by
+        /// TIME, so the old cap took the run from a player whose every keystroke was well timed, and
+        /// the break was the only thing it cost. Meh is the price backlog 199 already set for an
+        /// off-time press, so the two "you are not with the song" cases now cost the same.</para>
+        ///
+        /// <para>An ERA, the first bit of the SECOND CONFIG flags word
+        /// (<see cref="Replays.TypeBeatReplayFrame.CONFIG_EXTENDED"/>, bit 0), because the first
+        /// word's carrier was full at bit 16. FALSE by default, which is the rule every replay stored
+        /// before 347 was played under and what a replay with no extended header re-derives on
+        /// (<c>ReplayEngineFeed.Apply</c> clears it on every CONFIG frame and sets it from the
+        /// extended one). Set for EVERY live stack (<c>DrawableTypeBeatRuleset.createEngine</c>),
+        /// inert wherever the caret is pinned (the cap belongs to <see cref="FletcherEnabled"/>) and
+        /// under <see cref="RushCapExempt"/>, which takes the cap out of the question for both
+        /// arms. <see cref="BoundedRush"/> is unrelated and unchanged: it refuses an early entry into
+        /// the NEXT line and never broke combo.</para>
+        /// </summary>
+        public bool RushCapCostsAccuracy { get; set; }
+
+        /// <summary>
+        /// The rush cap in force for this run: <see cref="FLETCHER_MAX_CHARS_AHEAD"/> under
+        /// <see cref="RushCapCostsAccuracy"/>, <see cref="LEGACY_FLETCHER_MAX_CHARS_AHEAD"/> in the
+        /// era before it.
+        /// </summary>
+        public int RushCap => RushCapCostsAccuracy ? FLETCHER_MAX_CHARS_AHEAD : LEGACY_FLETCHER_MAX_CHARS_AHEAD;
 
         /// <summary>
         /// Whether the flexible caret was asked for by a MOD rather than by the era bit, which is
@@ -1811,6 +1864,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // The one place backlog 210's correction flag is ever cleared: it survives a
                     // backspace by design, so only a whole-run rebuild puts it back.
                     cell.HeldWrongBeforeJudged = false;
+
+                    // ...and backlog 347's rush-cap flag, on the same terms: history, so only a
+                    // whole-run rebuild clears it.
+                    cell.JudgedPastRushCap = false;
                 }
             }
 
@@ -3033,6 +3090,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // would show a Great on a cell whose stored result is the capped Ok.
                 type = TypeBeatResultMapping.AwardedTier(Windows.Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
 
+                // ...and through backlog 347's rush-cap award, for the same reason: the flag records
+                // that the first judgement was made out past the cap, and the delta alone would
+                // re-read that Meh as whatever the clock said.
+                if (cell.JudgedPastRushCap)
+                    type = TypeBeatResultMapping.RushCapTier(type);
+
                 cell.State = CellState.Correct;
                 cell.TypedChar = c;
                 cell.JudgedDelta = delta;
@@ -3056,10 +3119,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // itself is untouched, so the sync timeline and the sync readouts see the press the
                 // player actually made.
                 type = TypeBeatResultMapping.AwardedTier(Windows.Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
-                int basePoints = SyncWindows.BasePoints(type);
 
                 // Fletcher RUSH CAP, evaluated before the caret moves: does this press put the caret
-                // more than FLETCHER_MAX_CHARS_AHEAD countable chars past the playhead?
+                // more than RushCap countable chars past the playhead?
                 //
                 // "Before the caret moves" is true of every press but one, and that one is the whole
                 // of backlog 260 (see LosslessSkipReclaim): a space that skipped a word is judged on
@@ -3071,6 +3133,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // ...and RushCapExempt (backlog 261) takes the cap out of the question entirely, for
                 // the one mod whose playhead IS the tape the player is dragging: see the flag.
                 bool rushedPastCap = FletcherEnabled && !RushCapExempt && rushesPastCap(cell, time, caretForCap);
+
+                // WHAT THE CAP COSTS is the era axis (backlog 347, RushCapCostsAccuracy). Under the
+                // live rule it costs the JUDGEMENT and nothing else: the press is awarded the lowest
+                // hit tier (RushCapTier, a min over the ladder, so an off-time press is never lifted
+                // by it) and then flows through every arm below exactly as a Meh struck by the clock
+                // would, combo credit included. Applied here, above the point ladder, for the reason
+                // backlog 210's cap is: the points, the tier counts, the announced CharJudged and the
+                // cell's osu result all follow one decision. The delta is untouched. Under the
+                // pre-347 rule the tier stands and the combo arm below takes the break instead.
+                bool rushCostsTheJudgement = rushedPastCap && RushCapCostsAccuracy;
+
+                if (rushCostsTheJudgement)
+                {
+                    type = TypeBeatResultMapping.RushCapTier(type);
+                    cell.JudgedPastRushCap = true;
+                }
+
+                int basePoints = SyncWindows.BasePoints(type);
 
                 if (basePoints > 0)
                 {
@@ -3104,8 +3184,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     discardRestorableStreak();
                     raise(ComboBroken);
                 }
-                else if (rushedPastCap)
+                else if (rushedPastCap && !rushCostsTheJudgement)
                 {
+                    // THE PRE-347 ERA (RushCapCostsAccuracy clear), kept so every stored run
+                    // re-derives as it was played. The live rule never reaches this arm: its penalty
+                    // was taken above as the Meh, and the press credits combo in the arm below.
+                    //
                     // A combo penalty, not a block: the char lands and scores exactly as it would
                     // without the mod, but no combo may accumulate while the caret is out past the
                     // cap. ComboBroken therefore fires once, on the press that crosses the line,
@@ -3596,9 +3680,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// Fletcher rush cap: would accepting <paramref name="cell"/> at <paramref name="time"/> leave
-        /// the caret more than <see cref="FLETCHER_MAX_CHARS_AHEAD"/> countable chars past the
-        /// playhead? Measured on the caret position AFTER the press, so with a cap of 5 the fifth
-        /// char ahead is still fine and the sixth is not. A non-countable cell (a space) spends no
+        /// the caret more than <see cref="RushCap"/> countable chars past the playhead? Measured on
+        /// the caret position AFTER the press, so with the live cap of 6 the sixth char ahead is
+        /// still fine and the seventh is not (the fifth and the sixth under the pre-347 cap of 5).
+        /// A non-countable cell (a space) spends no
         /// budget, so pressing it can never push the caret over the line by itself.
         ///
         /// <para><paramref name="caretIndexForCap"/> is normally the live caret, and is the caret as
@@ -3611,7 +3696,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         {
             int after = countablePositionAt(caretIndexForCap) + (cell.IsCountable ? 1 : 0);
 
-            return after - PlayheadCountablePosition(time) > FLETCHER_MAX_CHARS_AHEAD;
+            return after - PlayheadCountablePosition(time) > RushCap;
         }
 
         /// <summary>

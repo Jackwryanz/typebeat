@@ -1439,8 +1439,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // resolved at all and the cell falls to the flat TypedChar CellFillColour already uses
             // for a Correct cell with no delta, which is exactly the pre-tint painting. The delta is
             // untouched either way; only whether it is read is.
+            //
+            // AN OVER-CAP PRESS (backlog 347) is drawn at the floor, the off-time styling: it was
+            // awarded Meh for where the caret was rather than for when the key went down, so its
+            // delta can be dead on and still describe a cell graded at the bottom of the ladder.
+            // The delta itself stays untouched on the cell and in every readout.
             double? syncQuality = syncTintEnabled && source.JudgedDelta is double delta
-                ? SyncWindows.Default.SyncQuality(delta)
+                ? (source.JudgedPastRushCap ? 0 : SyncWindows.Default.SyncQuality(delta))
                 : null;
 
             bool inSungSyllable = sungSyllable >= 0 && Line.SyllableIndexOf(cellIndex) == sungSyllable;

@@ -252,10 +252,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var stored = new Replay();
             stored.Frames.Add(storedConfig);
 
-            foreach (var frame in run.WallFrames.Skip(1))
+            // The SECOND flags word (backlog 347) rides its own header at the anchor, and has to
+            // survive the derivation the same way.
+            stored.Frames.Add(TypeBeatReplayFrame.CreateExtendedConfigFrame(-2000, rushCapCostsAccuracy: true));
+
+            foreach (var frame in run.WallFrames.Skip(1).Where(f => !f.IsConfigExtended))
                 stored.Frames.Add(new TypeBeatReplayFrame(frame.Time, frame.Character));
 
             var derived = PuppeteerReplayTransform.Derive(map, mods, stored);
+
+            Assert.IsTrue(derived[1].IsConfigExtended, "the extended header keeps its place");
+            Assert.IsTrue(derived[1].RushCapCostsAccuracy, "second-word bit 0 carried");
+            Assert.AreEqual(-2000, derived[1].Time, "at the anchor, beside the CONFIG frame");
 
             Assert.IsTrue(derived[0].IsConfig);
             Assert.IsTrue(derived[0].ManualNewlines, "bit 14 carried");

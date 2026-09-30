@@ -89,6 +89,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 double configTime = wallStamped ? AnchorTimeFor(puppeteer!.AnchorMs!.Value) : time;
 
                 emit(TypeBeatReplayFrame.CreateConfigFrame(configTime, engine.AllowWrongInput, engine.SpaceSkipsWord, engine.SyllableTiming, engine.WrongInputOnWordGaps, engine.StrictSpaces, engine.CharTimedStretch, flexibleLines: engine.FlexibleLineSnap, boundedRush: engine.BoundedRush, firstCharTiming: engine.FirstCharTiming, wallClockFrames: wallStamped, backDatedSealBreak: engine.BackDatedSealBreak, losslessSkipReclaim: engine.LosslessSkipReclaim, foldsDisplacedClaim: engine.FoldsDisplacedClaim, unhalvedHardRockWindows: engine.UnhalvedHardRockWindows, manualNewlines: engine.ManualNewlines, newlineOnTypedLetter: engine.NewlineOnTypedLetter, firstLineLeadIn: engine.FirstLineLeadIn));
+
+                // The SECOND flags word (backlog 347), straight after the first and at the same time,
+                // which is the order ReplayEngineFeed.Apply relies on (the CONFIG frame clears these
+                // flags, this one sets them).
+                emit(TypeBeatReplayFrame.CreateExtendedConfigFrame(configTime, rushCapCostsAccuracy: engine.RushCapCostsAccuracy));
             }
 
             emit(new TypeBeatReplayFrame(StampFor(puppeteer, wallStamped, time), character));

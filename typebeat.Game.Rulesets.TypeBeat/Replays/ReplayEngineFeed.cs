@@ -151,6 +151,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 engine.FlexibleLineSnap = frame.FlexibleLines;
                 engine.FletcherEnabled = frame.FlexibleLines || engine.FlexibleCaretFromMod;
 
+                // THE SECOND WORD IS ABSENT UNTIL PROVEN OTHERWISE (backlog 347). Every flag the
+                // extended header carries is CLEARED here, and set only by that frame (below), which
+                // the recorder writes straight after this one. So a replay recorded before the second
+                // carrier existed re-derives with every second-word era off, exactly as played, even
+                // on an engine the live factory built with those flags on (the watch path).
+                engine.RushCapCostsAccuracy = false;
+
                 // WallClockFrames (backlog 256, bit 9) is deliberately NOT applied to anything here,
                 // and it is the only bit on the header that is not. Every bit above selects a rule
                 // the engine judges under; that one says what the numbers on the frames MEAN, which
@@ -158,6 +165,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // Scoring.PuppeteerReplayTransform, which both the headless scorer and the watch
                 // path run up front; by the time a frame arrives here it is always on the track
                 // axis, and a derived stream carries the bit clear to say so.
+                return;
+            }
+
+            if (frame.IsConfigExtended)
+            {
+                // The SECOND flags word (backlog 347), on the CONFIG frame's own terms: flags only,
+                // no tick, clobbered from the frame. RushCapCostsAccuracy (bit 0) decides both what
+                // an over-cap press costs (its judgement, awarded Meh, rather than the combo) and
+                // where the cap is (six rather than five), so it is applied before any keystroke.
+                engine.RushCapCostsAccuracy = frame.RushCapCostsAccuracy;
                 return;
             }
 

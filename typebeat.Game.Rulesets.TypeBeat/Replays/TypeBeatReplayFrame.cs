@@ -104,6 +104,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// replay undecodable, so the next era needs another carrier (or the decoder's limit raised for
     /// this ruleset, the way MouseX's already is for mania) before it can be added here.</para>
     ///
+    /// <para><b>The SECOND carrier (backlog 347): <see cref="CONFIG_EXTENDED"/>.</b> That next era
+    /// arrived, and it lives on a second header frame rather than on a bit 17: the character is
+    /// <see cref="CONFIG_EXTENDED"/> (0x01, ASCII SOH) and its MouseY is a SECOND flags word, bits
+    /// numbered from 0 again, on exactly the first word's terms. Bit 0 (value 1) is
+    /// <see cref="RushCapCostsAccuracy"/>: a press out past the rush cap was awarded Meh and credited
+    /// combo, and the cap was six characters, rather than the press breaking the combo at five. The
+    /// same <c>MAX_COORDINATE_VALUE</c> ceiling bounds this word, so it too holds bits 0 to 16
+    /// (a fully set word is 131071), and a THIRD carrier (0x02) is the move after that. The legacy
+    /// mapping is the first word's: MouseX = 1, MouseY = the word, ButtonState = None, time = the
+    /// CONFIG frame's own time. Nothing about the stable-header strip or the first-three-frames
+    /// fixups can touch it: its MouseX is 1, never 256, and its MouseY is never negative.</para>
+    ///
+    /// <para>ORDER AND ABSENCE are the whole contract. The recorder writes it IMMEDIATELY after the
+    /// CONFIG frame, at the same time, and only there. <c>ReplayEngineFeed.Apply</c> CLEARS every
+    /// second-word flag on a CONFIG frame and SETS them from an extended one, so a replay with no
+    /// extended frame (every replay recorded before 347) reads the word as absent, all false, and
+    /// re-derives exactly as it was played; a new replay re-derives on the new rule. An OLDER CLIENT
+    /// reading a new replay sees an unknown sentinel below 0x20 and IGNORES it (the paragraph on
+    /// unknown sentinels below), so it replays the file without choking, under the rule it knows. A
+    /// consumer that has to clone frames (<c>PuppeteerReplayTransform</c>) carries the word across
+    /// like any other field.</para>
+    ///
     /// <para><b>The WALL-CLOCK axis (bit 9, backlog 256).</b> Ordinarily a frame's time is a lyric
     /// time and can be fed to the engine as it stands. Under the Puppeteer mod the song's position
     /// is a FUNCTION of the typing, so the lyric time of a keystroke is an OUTPUT of the model
@@ -117,7 +139,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <c>ReplayEngineFeed.Apply</c> deliberately does not apply it to anything.</para>
     ///
     /// <para><b>A sentinel this client does not know</b> is IGNORED rather than typed
-    /// (<c>ReplayEngineFeed.Apply</c>): any character below 0x20 that is not one of the three above
+    /// (<c>ReplayEngineFeed.Apply</c>): any character below 0x20 that is not one of the four this build knows (the three above and <see cref="CONFIG_EXTENDED"/>)
     /// resolves no cell and mutates nothing, so a frame kind added later degrades to a missing input
     /// on an older client instead of a wrong-key judgement that desynchronises every keystroke after
     /// it. <see cref="ENTER"/> itself needs no era bit for the opposite reason: a replay recorded
@@ -143,6 +165,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
         /// <summary>Sentinel character for the settings header frame (ASCII NUL).</summary>
         public const char CONFIG = '\0';
+
+        /// <summary>
+        /// Sentinel character for the EXTENDED settings header frame (ASCII SOH), backlog 347: the
+        /// second flags word, written straight after the <see cref="CONFIG"/> frame because the
+        /// first word's carrier is full (see the class summary). An older client ignores it.
+        /// </summary>
+        public const char CONFIG_EXTENDED = '\u0001';
 
         /// <summary>
         /// The character fed to the engine (layout-remapped, Shift-cased), or a sentinel
@@ -408,6 +437,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool FirstLineLeadIn;
 
         /// <summary>
+        /// Whether an over-cap press cost its JUDGEMENT rather than the combo (see
+        /// <see cref="Gameplay.TypingEngine.RushCapCostsAccuracy"/>): awarded Meh, combo credited,
+        /// cap six. Only meaningful on <see cref="CONFIG_EXTENDED"/> frames, where it is bit 0 of the
+        /// SECOND flags word, and the ERA carrier for backlog 347: the live client records it true for
+        /// every stack, and every replay stored before it has no extended frame at all, which reads as
+        /// false, so those runs re-derive with the combo break at five they were played with.
+        ///
+        /// <para>Judgement relevant in the combo-and-tier sense: it moves no keystroke's landing
+        /// place, but it decides the tier of every over-cap press, whether that press breaks the
+        /// run, and (through the cap size) which presses are over the cap at all, so a stored row
+        /// re-derived under the wrong arm comes back with different statistics, a different
+        /// <c>max_combo</c> and a different <c>total_score</c>.</para>
+        /// </summary>
+        public bool RushCapCostsAccuracy;
+
+        /// <summary>
         /// The ANCHOR carried by a bit-9 CONFIG frame: the track position the tape was started at,
         /// which is also the origin of the wall axis every other frame in the run is stamped on. It
         /// is simply this frame's own <see cref="ReplayFrame.Time"/>, named here because that is a
@@ -420,6 +465,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool IsEnter => Character == ENTER;
 
         public bool IsConfig => Character == CONFIG;
+
+        public bool IsConfigExtended => Character == CONFIG_EXTENDED;
 
         public TypeBeatReplayFrame()
         {
@@ -480,6 +527,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             NewlineOnTypedLetter = newlineOnTypedLetter,
             FirstLineLeadIn = firstLineLeadIn,
         };
+
+        /// <summary>
+        /// The EXTENDED header frame for a run (backlog 347): the second flags word, emitted at the
+        /// same <paramref name="time"/> as, and immediately after, the <see cref="CONFIG"/> frame.
+        /// Parameters are append-only and named, as <see cref="CreateConfigFrame"/>'s are; each one
+        /// defaults to clear, which is what a replay with no extended frame decodes to.
+        /// </summary>
+        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
+        {
+            RushCapCostsAccuracy = rushCapCostsAccuracy,
+        };
+
+        /// <summary>Bit 0 of the EXTENDED CONFIG frame's (second) flags word: an over-cap press was
+        /// awarded Meh and credited combo, with the cap at six, rather than breaking the combo at five
+        /// (backlog 347).</summary>
+        private const int ext_flag_rush_cap_costs_accuracy = 1;
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
         private const int flag_allow_wrong_input = 1;
@@ -558,6 +621,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
             int flags = (int)(currentFrame.MouseY ?? 0);
 
+            // The two header kinds carry DIFFERENT words in the same slot, so each decodes its own
+            // and leaves the other's fields false. Before backlog 347 every frame decoded the first
+            // word regardless of kind, which was harmless because only a CONFIG frame carries a
+            // non-zero one; an extended frame's word must not be read as first-word bits.
+            if (Character == CONFIG_EXTENDED)
+            {
+                RushCapCostsAccuracy = (flags & ext_flag_rush_cap_costs_accuracy) != 0;
+                return;
+            }
+
             AllowWrongInput = (flags & flag_allow_wrong_input) != 0;
             SpaceSkipsWord = (flags & flag_space_skips_word) != 0;
             SyllableTiming = (flags & flag_syllable_timing) != 0;
@@ -578,7 +651,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap) =>
-            new LegacyReplayFrame(Time, Character, IsConfig ? configFlags() : 0, ReplayButtonState.None);
+            new LegacyReplayFrame(Time, Character, IsConfig ? configFlags() : IsConfigExtended ? extendedConfigFlags() : 0, ReplayButtonState.None);
+
+        private int extendedConfigFlags() =>
+            RushCapCostsAccuracy ? ext_flag_rush_cap_costs_accuracy : 0;
 
         private int configFlags() =>
             (AllowWrongInput ? flag_allow_wrong_input : 0)
