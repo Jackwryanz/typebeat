@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using osu.Framework.Extensions;
 using osu.Framework.Extensions.IEnumerableExtensions;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Collections;
@@ -238,6 +239,9 @@ namespace typebeat.Game.Screens.Select
                 case GroupMode.EnabledOnIntro:
                     return getGroupsBy(b => DefineGroupByIntro(b.BeatmapSet!), items);
 
+                case GroupMode.Language:
+                    return getGroupsBy(b => DefineGroupByLanguage(b.Metadata.Language), items);
+
                 case GroupMode.Variant:
                 {
                     var rulesetInstance = criteria.Ruleset?.CreateInstance();
@@ -414,6 +418,21 @@ namespace typebeat.Game.Screens.Select
             return enabled
                 ? new GroupDefinition(0, BeatmapCarouselFilterGroupingStrings.EnabledOnIntro).Yield()
                 : new GroupDefinition(1, BeatmapCarouselFilterGroupingStrings.NotOnIntro).Yield();
+        }
+
+        /// <summary>
+        /// One group per <see cref="BeatmapLanguage"/>, titled as the editor's song setup and the set overlay title it,
+        /// in the enum's declaration order (which is the editor dropdown's order: the named languages, then
+        /// Instrumental and Other). A difficulty whose mapper never chose a language (every file written before the
+        /// key existed, and any local map not yet set up for submission) goes last under its own heading rather than
+        /// being mistaken for a language.
+        /// </summary>
+        internal static IEnumerable<GroupDefinition> DefineGroupByLanguage(BeatmapLanguage language)
+        {
+            if (language == BeatmapLanguage.Unspecified)
+                return new GroupDefinition(int.MaxValue, BeatmapCarouselFilterGroupingStrings.NoLanguageSet).Yield();
+
+            return new GroupDefinition((int)language, language.GetLocalisableDescription()).Yield();
         }
 
         private IEnumerable<GroupDefinition> defineGroupByStars(double stars)

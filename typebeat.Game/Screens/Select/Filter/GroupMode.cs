@@ -47,6 +47,12 @@ namespace typebeat.Game.Screens.Select.Filter
         [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.EnabledOnIntro))]
         EnabledOnIntro,
 
+        /// <summary>
+        /// Per difficulty, by the mapper-declared song language (<see cref="Beatmaps.BeatmapMetadata.Language"/>).
+        /// </summary>
+        [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.Language))]
+        Language,
+
         [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.LastPlayed))]
         LastPlayed,
 

@@ -150,6 +150,11 @@ namespace typebeat.Game.Localisation
         /// </summary>
         public static LocalisableString NotOnIntro => new TranslatableString(getKey(@"not_on_intro"), @"Not on intro");
 
+        /// <summary>
+        /// "No language set"
+        /// </summary>
+        public static LocalisableString NoLanguageSet => new TranslatableString(getKey(@"no_language_set"), @"No language set");
+
         private static string getKey(string key) => $@"{prefix}:{key}";
     }
 }

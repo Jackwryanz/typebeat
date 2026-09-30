@@ -205,6 +205,11 @@ namespace typebeat.Game.Localisation
         public static LocalisableString EnabledOnIntro => new TranslatableString(getKey(@"enabled_on_intro"), @"Enabled on intro");
 
         /// <summary>
+        /// "Language"
+        /// </summary>
+        public static LocalisableString Language => new TranslatableString(getKey(@"language"), @"Language");
+
+        /// <summary>
         /// "Date Submitted"
         /// </summary>
         public static LocalisableString DateSubmitted => new TranslatableString(getKey(@"date_submitted"), @"Date Submitted");

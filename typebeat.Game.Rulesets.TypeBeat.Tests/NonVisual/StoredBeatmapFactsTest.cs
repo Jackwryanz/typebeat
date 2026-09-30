@@ -258,6 +258,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        // ---- group by language ----
+
+        [TestCase(BeatmapLanguage.English, "English")]
+        [TestCase(BeatmapLanguage.Japanese, "Japanese")]
+        [TestCase(BeatmapLanguage.Instrumental, "Instrumental")]
+        [TestCase(BeatmapLanguage.Other, "Other")]
+        [TestCase(BeatmapLanguage.Unspecified, "No language set")]
+        public void LanguageGroupsAreTitledAsTheEditorTitlesThem(BeatmapLanguage language, string expected)
+            => Assert.That(title(BeatmapCarouselFilterGrouping.DefineGroupByLanguage(language).Single()), Is.EqualTo(expected));
+
+        [Test]
+        public void LanguageGroupsFollowTheEditorsOrderWithUnsetLast()
+        {
+            var declared = Enum.GetValues<BeatmapLanguage>().Where(l => l != BeatmapLanguage.Unspecified).ToList();
+            var orders = declared.Select(l => BeatmapCarouselFilterGrouping.DefineGroupByLanguage(l).Single().Order).ToList();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(orders, Is.Ordered.Ascending.And.Unique, "one group per language, in declaration order");
+                Assert.That(BeatmapCarouselFilterGrouping.DefineGroupByLanguage(BeatmapLanguage.Unspecified).Single().Order, Is.GreaterThan(orders.Max()));
+            });
+        }
+
+        [Test]
+        public void GroupByLanguageReadsEachDifficultysOwnDeclaration()
+        {
+            var english = new BeatmapSetInfo();
+            var englishEasy = difficulty(english, 60, false, BeatmapLanguage.English);
+            var englishHard = difficulty(english, 150, false, BeatmapLanguage.English);
+
+            var japanese = new BeatmapSetInfo();
+            var japaneseOnly = difficulty(japanese, 90, false, BeatmapLanguage.Japanese);
+
+            var unset = new BeatmapSetInfo();
+            var unsetOnly = difficulty(unset, 90, false);
+
+            var groups = run(GroupMode.Language, unset, japanese, english);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(groupOf(groups, englishEasy), Is.EqualTo("English"));
+                Assert.That(groupOf(groups, englishHard), Is.EqualTo("English"));
+                Assert.That(groupOf(groups, japaneseOnly), Is.EqualTo("Japanese"));
+                Assert.That(groupOf(groups, unsetOnly), Is.EqualTo("No language set"));
+                Assert.That(groups.Keys, Is.EqualTo(new[] { "English", "Japanese", "No language set" }), "editor order, unset last");
+            });
+        }
+
         // ---- sort by WPM ----
 
         [Test]
@@ -320,9 +368,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return beatmap;
         }
 
-        private static BeatmapInfo difficulty(BeatmapSetInfo set, double targetWpm, bool hasIntroBeatdrop)
+        private static BeatmapInfo difficulty(BeatmapSetInfo set, double targetWpm, bool hasIntroBeatdrop, BeatmapLanguage language = BeatmapLanguage.Unspecified)
         {
-            var beatmap = new BeatmapInfo(new TypeBeatRuleset().RulesetInfo, new BeatmapDifficulty(), new BeatmapMetadata())
+            var beatmap = new BeatmapInfo(new TypeBeatRuleset().RulesetInfo, new BeatmapDifficulty(), new BeatmapMetadata { Language = language })
             {
                 BeatmapSet = set,
                 DifficultyName = $"{targetWpm} WPM",
