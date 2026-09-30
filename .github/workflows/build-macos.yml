@@ -195,7 +195,7 @@ jobs:
       # or Linux feed files already in the same directory, so the whole feed lives side by side
       # under /data/downloads/releases/. mainExe is the extensionless apphost name; packId
       # 'typebeat' matches the SimpleWebSource the installed game polls
-      # (https://typebeat.mingda.sh/releases).
+      # (https://typebeat.sh/releases).
       - name: Pack with Velopack
         run: |
           vpk pack \
@@ -331,7 +331,7 @@ jobs:
         run: |
           set -uo pipefail
           SSH="ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_HOST}"
-          FEED_BASE="https://typebeat.mingda.sh/releases"
+          FEED_BASE="https://typebeat.sh/releases"
 
           # The keep-set's first half comes from the PUBLIC manifests, which is what an installed
           # client actually resolves, rather than from anything on the box. curl runs here on the

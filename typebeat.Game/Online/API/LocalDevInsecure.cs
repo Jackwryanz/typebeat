@@ -8,7 +8,7 @@ namespace typebeat.Game.Online.API
 {
     /// <summary>
     /// osu-framework's <see cref="WebRequest"/> silently upgrades every <c>http://</c> request to
-    /// <c>https://</c>. That is correct for the production server (<c>https://typebeat.mingda.sh</c>),
+    /// <c>https://</c>. That is correct for the production server (<c>https://typebeat.sh</c>),
     /// but a locally running typebeat-web instance (<c>http://localhost:5089</c>) speaks plain HTTP,
     /// so the upgrade makes every dev API call fail the TLS handshake.
     ///

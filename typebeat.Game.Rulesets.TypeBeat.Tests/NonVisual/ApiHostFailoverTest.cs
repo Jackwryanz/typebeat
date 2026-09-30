@@ -25,8 +25,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     [TestFixture]
     public class ApiHostFailoverTest
     {
-        private const string proxied_root = "https://typebeat.mingda.sh";
-        private const string direct_root = "https://bss.typebeat.mingda.sh";
+        private const string proxied_root = "https://typebeat.sh";
+        private const string direct_root = "https://bss.typebeat.sh";
 
         /// <summary>
         /// Cloudflare stays the default: it absorbs the traffic of the vast majority of players who

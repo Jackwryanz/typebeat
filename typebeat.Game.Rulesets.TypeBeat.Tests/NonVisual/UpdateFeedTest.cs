@@ -22,7 +22,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// </summary>
         [Test]
         public void PrimaryFeedIsTheDirectOriginHost()
-            => Assert.That(UpdateFeed.PRIMARY_URL, Is.EqualTo("https://bss.typebeat.mingda.sh/releases"));
+            => Assert.That(UpdateFeed.PRIMARY_URL, Is.EqualTo("https://bss.typebeat.sh/releases"));
 
         /// <summary>
         /// The fallback exists for the opposite failure: a network that blocks the bare origin
@@ -30,7 +30,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// </summary>
         [Test]
         public void FallbackFeedIsTheProxiedWebsiteRoot()
-            => Assert.That(UpdateFeed.FALLBACK_URL, Is.EqualTo("https://typebeat.mingda.sh/releases"));
+            => Assert.That(UpdateFeed.FALLBACK_URL, Is.EqualTo("https://typebeat.sh/releases"));
 
         [Test]
         public void FeedsAreDistinctTypebeatHosts()

@@ -50,7 +50,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 MANIFEST="${REPO_ROOT}/typebeat.Desktop/bundled-maps.manifest"
 BUNDLED_DIR="${REPO_ROOT}/typebeat.Desktop/Bundled"
-BASE_URL="${BUNDLED_MAPS_BASE_URL:-https://typebeat.mingda.sh/releases}"
+BASE_URL="${BUNDLED_MAPS_BASE_URL:-https://typebeat.sh/releases}"
 
 # ::error:: is a GitHub Actions annotation and plain noise anywhere else, which is the right
 # behaviour in both places. Everything diagnostic goes to stderr so `count` and `manifest` stay

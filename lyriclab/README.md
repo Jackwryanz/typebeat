@@ -96,7 +96,7 @@ char spans → syllables (pyphen + vowel-group fallback) → words → lines
 
 ## Accuracy, version 2 (ranked-map corpus, 2026-09-28)
 
-Truth = the word timings of the ranked maps on typebeat.mingda.sh (every set,
+Truth = the word timings of the ranked maps on typebeat.sh (every set,
 one difficulty each; the 17 maps that were this aligner's own untouched output
 excluded as circular), 84 maps, 20,603 word starts. Input = the map's line
 starts ("exact") or those starts moved 250 ± 120 ms early ("human", how

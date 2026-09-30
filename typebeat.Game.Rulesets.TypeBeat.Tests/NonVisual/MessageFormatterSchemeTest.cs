@@ -15,7 +15,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     public class MessageFormatterSchemeTest
     {
         [SetUp]
-        public void SetUp() => MessageFormatter.WebsiteRootUrl = "https://typebeat.mingda.sh";
+        public void SetUp() => MessageFormatter.WebsiteRootUrl = "https://typebeat.sh";
 
         [Test]
         public void GameProtocolIsTypebeatScheme()
@@ -61,9 +61,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(MessageFormatter.GetLinkDetails("osu://s/2626").Action, Is.EqualTo(LinkAction.External));
         }
 
-        [TestCase("https://typebeat.mingda.sh/beatmapsets/2626", LinkAction.OpenBeatmapSet, "2626")]
-        [TestCase("https://typebeat.mingda.sh/beatmaps/252238", LinkAction.OpenBeatmap, "252238")]
-        [TestCase("https://typebeat.mingda.sh/wiki/Welcome", LinkAction.OpenWiki, "Welcome")]
+        [TestCase("https://typebeat.sh/beatmapsets/2626", LinkAction.OpenBeatmapSet, "2626")]
+        [TestCase("https://typebeat.mingda.sh/beatmapsets/2626", LinkAction.OpenBeatmapSet, "2626")] // pre-move host, from old pasted links
+        [TestCase("https://typebeat.sh/beatmaps/252238", LinkAction.OpenBeatmap, "252238")]
+        [TestCase("https://typebeat.sh/wiki/Welcome", LinkAction.OpenWiki, "Welcome")]
         public void WebsiteLinkParses(string url, LinkAction expectedAction, string expectedArgument)
         {
             var details = MessageFormatter.GetLinkDetails(url);
@@ -75,7 +76,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void WebsiteUserLinkParses()
         {
-            var details = MessageFormatter.GetLinkDetails("https://typebeat.mingda.sh/users/42");
+            var details = MessageFormatter.GetLinkDetails("https://typebeat.sh/users/42");
 
             Assert.That(details.Action, Is.EqualTo(LinkAction.OpenUserProfile));
             Assert.That(details.Argument, Is.InstanceOf<APIUser>());

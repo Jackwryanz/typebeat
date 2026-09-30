@@ -10,7 +10,8 @@ namespace typebeat.Game.Online
     /// <see cref="TrustedDomainOnlineStore"/> (online resource lookups) and
     /// <see cref="Chat.ExternalLinkOpener"/> (external link warning suppression).
     /// A URL is trusted when it is an absolute http(s) URL whose host is loopback (local development),
-    /// an exact match of a configured endpoint host, or a subdomain of a configured endpoint's apex domain.
+    /// an exact match of a configured endpoint host, a subdomain of a configured endpoint's apex domain,
+    /// or (when production is the configured endpoint) the host production used to live on.
     /// </summary>
     public static class TrustedDomains
     {
@@ -42,7 +43,27 @@ namespace typebeat.Game.Online
             if (uri.IsLoopback)
                 return true;
 
-            return hostMatches(uri, apiUri) || hostMatches(uri, websiteUri);
+            return hostMatches(uri, apiUri) || hostMatches(uri, websiteUri) || isLegacyProductionHost(uri, apiUri, websiteUri);
+        }
+
+        // Links to the pre-move production host stay trusted, but only while production is what
+        // this client is actually configured against: a dev or override target has no business
+        // trusting a production host. The host and its subdomains (the direct-origin bss host) only,
+        // deliberately not the old apex, which was never type!beat's own domain.
+        private static bool isLegacyProductionHost(Uri candidate, Uri? apiUri, Uri? websiteUri)
+        {
+            string productionHost = new Uri(TypebeatEndpointConfiguration.PRODUCTION_ROOT).Host;
+
+            bool onProduction = string.Equals(apiUri?.Host, productionHost, StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(websiteUri?.Host, productionHost, StringComparison.OrdinalIgnoreCase);
+
+            if (!onProduction)
+                return false;
+
+            const string legacy = TypebeatEndpointConfiguration.LEGACY_PRODUCTION_HOST;
+
+            return candidate.Host.Equals(legacy, StringComparison.OrdinalIgnoreCase)
+                   || candidate.Host.EndsWith($@".{legacy}", StringComparison.OrdinalIgnoreCase);
         }
 
         // Trust the endpoint host itself and any subdomain of its apex (the maps/media host will live

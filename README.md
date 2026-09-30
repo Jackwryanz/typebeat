@@ -6,7 +6,7 @@ Fork of [osu!lazer](https://github.com/ppy/osu) (PLEASE CHECK THEM OUT!!!)
 
 Instead of circle clicking, you type out the lyrics synced up with the song
 
-[![Website](https://img.shields.io/badge/website-typebeat.mingda.sh-blue)](https://typebeat.mingda.sh/)
+[![Website](https://img.shields.io/badge/website-typebeat.sh-blue)](https://typebeat.sh/)
 [![Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/yAR2PDPgBB)
 [![YouTube](https://img.shields.io/badge/youtube-@typebeatgame-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@typebeatgame)
 

@@ -133,7 +133,7 @@ jobs:
       # names never collide with the Windows feed files already in the same directory, so the whole
       # feed lives side by side under /data/downloads/releases/. mainExe is the extensionless linux
       # apphost name; packId 'typebeat' matches the SimpleWebSource the installed game polls
-      # (https://typebeat.mingda.sh/releases). The icon is assets/typebeat.png, the type!beat icon,
+      # (https://typebeat.sh/releases). The icon is assets/typebeat.png, the type!beat icon,
       # which is the same art typb.ico carries and build-macos.yml builds its .icns from; it used to
       # be assets/lazer.png, osu!'s own logo, which is ppy's IP and must not ship in our packages.
       - name: Pack with Velopack
@@ -216,7 +216,7 @@ jobs:
         run: |
           set -uo pipefail
           SSH="ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_HOST}"
-          FEED_BASE="https://typebeat.mingda.sh/releases"
+          FEED_BASE="https://typebeat.sh/releases"
 
           # The keep-set's first half comes from the PUBLIC manifests, which is what an installed
           # client actually resolves, rather than from anything on the box. curl runs here on the

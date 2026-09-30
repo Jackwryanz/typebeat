@@ -25,7 +25,7 @@
 #
 # TRANSPORT. Fetches are content-addressed off the hash in column 1:
 #
-#     https://typebeat.mingda.sh/releases/bundled-<sha256>.typb
+#     https://typebeat.sh/releases/bundled-<sha256>.typb
 #
 # served by the web app's existing anonymous /releases/{file} route out of
 # /data/downloads/releases/ inside the app container. Content addressing means the checksum IS

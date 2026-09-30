@@ -66,7 +66,7 @@ namespace typebeat.Game.Online
         /// (see <see cref="TypebeatEndpointConfiguration.PRODUCTION_BSS_ROOT"/>): it already exists,
         /// is already grey-clouded to the same origin, and its vhost already serves every route.
         /// The name is honest about what created it rather than about what it now carries; if
-        /// `api.typebeat.mingda.sh` is ever added beside it as a naming-honesty alias, only this
+        /// `api.typebeat.sh` is ever added beside it as a naming-honesty alias, only this
         /// constant moves.
         /// </remarks>
         public const string FALLBACK_ROOT = TypebeatEndpointConfiguration.PRODUCTION_BSS_ROOT;

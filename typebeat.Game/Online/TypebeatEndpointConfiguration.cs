@@ -11,10 +11,18 @@ namespace typebeat.Game.Online
     {
         /// <summary>
         /// The production server: one host serves both the website and the API
-        /// (typebeat-web is a single monolith). Subdomain of the owner's apex domain;
-        /// map downloads will live on a sibling subdomain once file serving lands (M3).
+        /// (typebeat-web is a single monolith). The game's own apex domain; map downloads
+        /// will live on a subdomain of it once file serving lands (M3).
         /// </summary>
-        public const string PRODUCTION_ROOT = @"https://typebeat.mingda.sh";
+        public const string PRODUCTION_ROOT = @"https://typebeat.sh";
+
+        /// <summary>
+        /// The host production lived on before the move to <see cref="PRODUCTION_ROOT"/>. The
+        /// server keeps answering on it for the builds that have it compiled in, and links to
+        /// it are everywhere players already pasted them (chat history, map descriptions), so
+        /// it stays a trusted domain. Nothing new is ever requested from it.
+        /// </summary>
+        public const string LEGACY_PRODUCTION_HOST = @"typebeat.mingda.sh";
 
         /// <summary>
         /// Direct-origin host for production beatmap submission, bypassing Cloudflare.
@@ -29,7 +37,7 @@ namespace typebeat.Game.Online
         /// normal API root works here unchanged, and the /bss path prefix is unchanged and
         /// pinned by typebeat-web/docs/m3-spec.md.
         /// </summary>
-        public const string PRODUCTION_BSS_ROOT = @"https://bss.typebeat.mingda.sh";
+        public const string PRODUCTION_BSS_ROOT = @"https://bss.typebeat.sh";
 
         public TypebeatEndpointConfiguration(string apiRoot = PRODUCTION_ROOT)
         {

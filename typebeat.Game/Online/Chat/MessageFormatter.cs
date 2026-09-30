@@ -74,6 +74,18 @@ namespace typebeat.Game.Online.Chat
                                     .Split('/').Last(); // only keep domain name, ignoring protocol.
         }
 
+        // A link to the host production lived on before the domain move is still a link to the same
+        // site, so it keeps opening in-game rather than in a browser. Only when production is the
+        // configured website: a dev target must not treat production links as its own.
+        private static bool isWebsiteHost(string host)
+        {
+            if (host.EndsWith(WebsiteRootUrl, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return TypebeatEndpointConfiguration.PRODUCTION_ROOT.EndsWith($@"//{WebsiteRootUrl}", StringComparison.OrdinalIgnoreCase)
+                   && host.EndsWith(TypebeatEndpointConfiguration.LEGACY_PRODUCTION_HOST, StringComparison.OrdinalIgnoreCase);
+        }
+
         private static string websiteRootUrl = "osu.ppy.sh";
 
         private static void handleMatches(Regex regex, string display, string link, MessageFormatterResult result, int startIndex = 0, LinkAction? linkActionOverride = null,
@@ -157,7 +169,7 @@ namespace typebeat.Game.Online.Chat
                 case @"http":
                 case @"https":
                     // length > 3 since all these links need another argument to work
-                    if (args.Length > 3 && args[1].EndsWith(WebsiteRootUrl, StringComparison.OrdinalIgnoreCase))
+                    if (args.Length > 3 && isWebsiteHost(args[1]))
                     {
                         string mainArg = args[3];
 
