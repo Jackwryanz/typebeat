@@ -3,3 +3,4 @@
 out/
 work/
 __pycache__/
+.uv/

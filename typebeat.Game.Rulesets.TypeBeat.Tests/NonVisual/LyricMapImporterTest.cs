@@ -680,6 +680,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(result.Error, Does.Contain(LyricMapImporter.SetupScriptName));
         }
 
+        [Test]
+        public async Task BootstrapFailureShowsAPlainSentenceNotTheRawScriptError()
+        {
+            // Backlog 349: a failing setup script used to hand its raw output (a PowerShell
+            // NativeCommandError record) straight to the player. The player now gets one plain
+            // sentence; the raw text goes to the log only.
+            string lab = Path.Combine(tempRoot, "lyriclab");
+            Directory.CreateDirectory(lab);
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "# stub");
+            File.WriteAllText(Path.Combine(lab, "setup.ps1"), "[Console]::Error.WriteLine('py.exe : No suitable Python runtime found'); exit 103\n");
+            File.WriteAllText(Path.Combine(lab, "setup.sh"), "echo 'py.exe : No suitable Python runtime found' >&2\nexit 103\n");
+
+            var lines = new List<string>();
+            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+                lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.False);
+            lock (lines)
+                Assert.That(lines, Has.Some.Contains("No suitable Python"), "the fake script's raw error should have streamed as progress");
+            Assert.That(result.Error, Does.Contain("could not finish"));
+            Assert.That(result.Error, Does.Not.Contain("No suitable Python"));
+            Assert.That(result.Error, Does.Not.Contain("103"));
+        }
+
         #region Authoring marks through the import (backlog 202)
 
         [Test]

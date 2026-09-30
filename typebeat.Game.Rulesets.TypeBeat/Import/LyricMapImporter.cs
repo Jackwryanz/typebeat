@@ -23,6 +23,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using osu.Framework.Logging;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -159,6 +160,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 : Path.Combine(lyricLabDir, ".venv", "bin", "python");
 
         /// <summary>
+        /// What the player sees when the setup script fails. Both install surfaces wrap it
+        /// ("Install failed: ...", "Aligner install failed: ..."), so it is a bare clause.
+        /// </summary>
+        private const string setup_failed_message = "the aligner setup could not finish (check your internet connection and retry; the details are in the game log)";
+
+        /// <summary>
         /// One-time environment bootstrap: runs the component's setup script (venv + pinned packages,
         /// a multi-GB first-time download). No-op when the venv already exists. Not auto-invoked by
         /// <see cref="BuildOszAsync"/> (which prefers the instant LRC fallback); exposed for an
@@ -213,11 +220,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (exitCode == cancelled_exit_code)
                 return LyricImportResult.Fail("environment setup cancelled");
 
+            // The script's raw output (a PowerShell error record, a uv or pip traceback) is for the
+            // log, not the player: they get one plain sentence and the log keeps the detail.
             if (exitCode != 0)
-                return LyricImportResult.Fail($"environment setup exited with code {exitCode}: {tail}");
+            {
+                Logger.Log($"Aligner environment setup exited with code {exitCode}: {tail}", LoggingTarget.Runtime, LogLevel.Important);
+                return LyricImportResult.Fail(setup_failed_message);
+            }
 
             if (!EnvironmentReady(lyricLabDir))
-                return LyricImportResult.Fail($"environment setup finished but no venv python at {PythonExeFor(lyricLabDir)}");
+            {
+                Logger.Log($"Aligner environment setup finished but left no venv python at {PythonExeFor(lyricLabDir)}: {tail}", LoggingTarget.Runtime, LogLevel.Important);
+                return LyricImportResult.Fail(setup_failed_message);
+            }
 
             // Record which torch flavour this environment carries so alignment runs pick the device.
             try
