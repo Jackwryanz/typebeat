@@ -33,17 +33,24 @@
 # published, so the two can never silently disagree.
 #
 # CHANGING THE BUNDLE. Add or replace the .typb in Bundled/, then:
+#   0. python .github/scripts/bundled-maps-online.py
+#      proves every package is the SITE's current copy of a ranked set (an older download
+#      imports as a different map with no leaderboard) and lists the intro beatdrop candidates
 #   1. .github/scripts/bundled-maps.sh manifest > typebeat.Desktop/bundled-maps.manifest
 #   2. upload the new package to the box under its content-addressed name (see the script header
 #      for the exact command), or the next CI build fails
 #   3. commit the regenerated manifest
 # Order matters: the upload must land before the manifest reaches a branch CI builds from.
 
-3fecfbb0eec228047d5f70fdfa0ab3079dcaeb9ae66590c8c5b903402153150c  4966821  Foreigner - Cold as Ice.typb
-bf72b1e9ba6c2aa8a7b1fb09e2dd63219890e01dc155f9084d8530789b736f4a  3542970  Friday Pilots Club - Spectator.typb
-af6a04804719a45dd7c19da494fdfe74f5f6114b961b5dd7f83ec9b23d9b29c9  3367883  Health x Chelsea Wolfe - Mean.typb
+fe3e62e20e46ede5f957ed62ae9ec1ca6e048dfdd7c93d795e8aca86158c0282  3408733  Ariana Grande - hate that i made you love me.typb
+812be192519320e02723e1b0fec6d3a682c3331e60bdc7fdf7b1ea5c36835d8f  7395278  Bruno Mars - Talking to the Moon.typb
+3709575b8cf0395442972869345baa6ce46e023ea04b1a93be61a9ae12883295  5380320  Elvis Presley - Can't Help Falling In Love.typb
+312cd3cae5010c718547b28b28e90f78ba206c60b7f3d79e33c5dd6a464b9210  9774364  Gorillaz - On Melancholy Hill.typb
+a830a7a87648a57dba81445095daa291cc4c4c7a9bcd29b24bcf21fe33b34818  6854879  Johnny Cash - Hurt.typb
 de52839508a9f87947ec1d124b88a5796ae787edeedebd81a1fecdc05c73d9be  6210205  Mage - The Words I Never Said.typb
-3cb03a1bc617fe56d29760048a1507cbbda19bf7ecb505d8aad392f9439ab339  11396369  Panda Eyes and Teminite - Immortal Flame.typb
-519c082d3bb0d2dafc01b2cd52f9fef94b9c3108f7c7e8930742886718b3e685  6402408  Station Earth - Cold Green Eyes.typb
-0072c36931d2f9bcec79718ae4333bd402ab994d3b8e3e956b1e723da8006653  10635605  Undead Corporation - Embraced by the Flame.typb
-d1823a4cdb55caa346ed108d69c339c035eb8bbac5802829b6996c5565980299  3572352  Vance Joy - Riptide.typb
+16e9666c998b0f338565302cfaf23df245731ac4c4717617501ff154a5062be9  10566166  Mitski - Washing Machine Heart.typb
+2badd6b7258ee87c2630aa505af9812da8b470a5b2c0399d2ba9733a9d9af7b1  11120747  Radiohead - Exit Music (For a Film).typb
+2405ebaedf8ab071b76ad8aa342931342ac391ff71d9da1684a347025e299870  9082677  Tame Impala - Loser.typb
+f4a4d043e4b87522bbb1207d61160bd990a9cc29882080f96202a73de549f89e  8645154  Tame Impala, JENNIE - Dracula (JENNIE Remix).typb
+3c6155e3463d3666a49d6c68b726d6a3d92f73a283f3e67d13fbb62a080c7542  10760870  THE KOXX - A Fool Moon Night.typb
+078ddf929d49f856b37059efc0ca30647f5d77834fedbc2943a543e66dfa2451  3574215  Vance Joy - Riptide.typb
