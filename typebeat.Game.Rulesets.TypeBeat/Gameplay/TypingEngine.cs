@@ -511,8 +511,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// The one ladder every cell of every map is judged on, at the current
-        /// <see cref="WindowScale"/> and <see cref="DifficultyWindowScale"/>. The map's timing
-        /// granularity no longer selects a tier, so
+        /// <see cref="WindowScale"/>. The map's timing granularity no longer selects a tier, so
         /// there is nothing per-cell to resolve here.
         /// </summary>
         public SyncWindows Windows { get; private set; }
@@ -549,20 +548,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     throw new ArgumentOutOfRangeException(nameof(value), value, "A judgement window scale must be finite and positive.");
 
                 windowScale = value;
-                applyWindowScale();
-            }
-        }
-
-        /// <summary>Extra tolerance derived from the mod-adjusted map stars, separate from mod scales.</summary>
-        public double DifficultyWindowScale
-        {
-            get => difficultyWindowScale;
-            set
-            {
-                if (!double.IsFinite(value) || value <= 0)
-                    throw new ArgumentOutOfRangeException(nameof(value), value, "A difficulty window scale must be finite and positive.");
-
-                difficultyWindowScale = value;
                 applyWindowScale();
             }
         }
@@ -1761,7 +1746,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private (int lineIndex, int cellIndex, int streak, int ownPressCredit, List<ComboPosition> positions)? restorable;
 
         private double windowScale = 1;
-        private double difficultyWindowScale = 1;
 
         private bool hardRockFromMod;
 
@@ -3927,8 +3911,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// Rebuild the per-granularity ladders (and <see cref="Windows"/>) at the current EFFECTIVE
-        /// scale, which is <see cref="WindowScale"/> times <see cref="DifficultyWindowScale"/>
-        /// and Hard Rock's halving on the runs that were
+        /// scale, which is <see cref="WindowScale"/> times Hard Rock's halving on the runs that were
         /// played under it (<see cref="HardRockFromMod"/> and <see cref="UnhalvedHardRockWindows"/>).
         ///
         /// <para>Recomputed from scratch on every call rather than folded into
@@ -3942,7 +3925,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // Naming the mod costs nothing at runtime: WINDOW_SCALE is a const, so the compiler
             // inlines the 0.5 and this file keeps its zero-dependency shape. It is named rather than
             // duplicated so the era constant has exactly one definition.
-            double scale = windowScale * difficultyWindowScale * (hardRockFromMod && !unhalvedHardRockWindows ? Mods.TypeBeatModHardRock.WINDOW_SCALE : 1);
+            double scale = windowScale * (hardRockFromMod && !unhalvedHardRockWindows ? Mods.TypeBeatModHardRock.WINDOW_SCALE : 1);
 
             Windows = SyncWindows.Default.Scaled(scale);
         }

@@ -223,10 +223,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             bool polyglot = Mods?.Any(m => m is TypeBeatModPolyglot) == true;
             string? polyglotLanguage = polyglot ? TypeBeatModPolyglot.LanguageFor(Beatmap) : null;
 
-            double stars = TypeBeatDifficultyCalculator.ComputeModel(lyricBeatmap.Lines, Mods?.ToList()).Stars;
             return new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage)
             {
-                DifficultyWindowScale = StarTimingWindows.ScaleForStars(stars),
                 // THE live judgement rule since backlog 179, for every player and (since backlog
                 // 180) every mod stack but Hard Rock: a character typed while its syllable is being
                 // sung is perfectly timed. Backlog 174 shipped this as a debug-only experiment and
