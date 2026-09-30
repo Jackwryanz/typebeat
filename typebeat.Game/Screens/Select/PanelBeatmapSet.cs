@@ -39,8 +39,6 @@ namespace typebeat.Game.Screens.Select
     {
         public const float HEIGHT = CarouselItem.DEFAULT_HEIGHT * 1.6f;
 
-        public Bindable<HashSet<BeatmapInfo>?> VisibleBeatmaps { get; } = new Bindable<HashSet<BeatmapInfo>?>();
-
         private Box chevronBackground = null!;
         private PanelSetBackground setBackground = null!;
         private ScheduledDelegate? scheduledBackgroundRetrieval;
@@ -50,7 +48,6 @@ namespace typebeat.Game.Screens.Select
         private Drawable chevronIcon = null!;
         private PanelUpdateBeatmapButton updateButton = null!;
         private BeatmapSetOnlineStatusPill statusPill = null!;
-        private SpreadDisplay spreadDisplay = null!;
 
         [Resolved]
         private OverlayColourProvider colourProvider { get; set; } = null!;
@@ -154,12 +151,6 @@ namespace typebeat.Game.Screens.Select
                                     Origin = Anchor.CentreLeft,
                                     Margin = new MarginPadding { Right = 5f, Top = -2f },
                                 },
-                                spreadDisplay = new SpreadDisplay
-                                {
-                                    Origin = Anchor.CentreLeft,
-                                    Anchor = Anchor.CentreLeft,
-                                    VisibleBeatmaps = { BindTarget = VisibleBeatmaps },
-                                },
                             },
                         }
                     }
@@ -189,8 +180,6 @@ namespace typebeat.Game.Screens.Select
                 chevronIcon.ResizeWidthTo(0f, DURATION, Easing.OutQuint);
                 chevronIcon.FadeTo(0f, DURATION, Easing.OutQuint);
             }
-
-            spreadDisplay.Expanded.Value = Expanded.Value;
         }
 
         protected override void PrepareForUse()
@@ -206,7 +195,6 @@ namespace typebeat.Game.Screens.Select
             artistText.Text = new RomanisableString(beatmapSet.Metadata.ArtistUnicode, beatmapSet.Metadata.Artist);
             updateButton.BeatmapSet = beatmapSet;
             statusPill.Status = beatmapSet.Status;
-            spreadDisplay.BeatmapSet.Value = beatmapSet;
         }
 
         protected override void FreeAfterUse()
@@ -217,7 +205,6 @@ namespace typebeat.Game.Screens.Select
             scheduledBackgroundRetrieval = null;
             setBackground.Beatmap = null;
             updateButton.BeatmapSet = null;
-            spreadDisplay.BeatmapSet.Value = null;
         }
 
         [Resolved]

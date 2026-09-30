@@ -89,12 +89,6 @@ namespace typebeat.Game.Screens.Select
         protected bool ControlGlobalMusic { get; init; } = true;
 
         /// <summary>
-        /// Whether this song select instance should allow scoping down to a specific beatmap set,
-        /// exposing other difficulties that are otherwise hidden by filter criteria.
-        /// </summary>
-        protected bool SupportScoping { init => scopedBeatmapSet.Disabled = !value; }
-
-        /// <summary>
         /// Whether the type!beat logo should be shown at the bottom-right of the screen.
         /// </summary>
         protected bool ShowOsuLogo { get; init; } = true;
@@ -292,7 +286,6 @@ namespace typebeat.Game.Screens.Select
                                                         Anchor = Anchor.TopRight,
                                                         Origin = Anchor.TopRight,
                                                         RelativeSizeAxes = Axes.X,
-                                                        ScopedBeatmapSet = { BindTarget = ScopedBeatmapSet },
                                                     },
                                                 }
                                             },
@@ -1255,30 +1248,6 @@ namespace typebeat.Game.Screens.Select
         {
             foreach (var b in beatmapSet.Beatmaps)
                 beatmaps.Restore(b);
-        }
-
-        private GroupedBeatmap? beforeScopedSelection;
-
-        private readonly Bindable<BeatmapSetInfo?> scopedBeatmapSet = new Bindable<BeatmapSetInfo?>();
-        public IBindable<BeatmapSetInfo?> ScopedBeatmapSet => scopedBeatmapSet;
-
-        public void ScopeToBeatmapSet(BeatmapSetInfo beatmapSet)
-        {
-            beforeScopedSelection = carousel.CurrentGroupedBeatmap;
-
-            scopedBeatmapSet.Value = beatmapSet;
-        }
-
-        public void UnscopeBeatmapSet()
-        {
-            if (scopedBeatmapSet.Value == null)
-                return;
-
-            if (beforeScopedSelection != null)
-                queueBeatmapSelection(beforeScopedSelection);
-
-            scopedBeatmapSet.Value = null;
-            beforeScopedSelection = null;
         }
 
         #endregion

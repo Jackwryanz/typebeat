@@ -55,12 +55,6 @@ namespace typebeat.Game.Screens.Select
         {
             bool match = criteria.Ruleset == null || beatmap.AllowGameplayWithRuleset(criteria.Ruleset!, criteria.AllowConvertedBeatmaps);
 
-            if (criteria.SelectedBeatmapSet != null)
-            {
-                // only check ruleset equality or convertability for selected beatmap
-                return beatmap.BeatmapSet?.Equals(criteria.SelectedBeatmapSet) == true && match;
-            }
-
             if (!match) return false;
 
             if (criteria.SearchTerms.Length > 0)

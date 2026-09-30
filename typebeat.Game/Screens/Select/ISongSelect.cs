@@ -3,7 +3,6 @@
 
 using System.Collections.Generic;
 using osu.Framework.Allocation;
-using osu.Framework.Bindables;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Scoring;
@@ -52,23 +51,5 @@ namespace typebeat.Game.Screens.Select
         /// Gets relevant actionable items for beatmap context menus, based on the type of song select.
         /// </summary>
         IEnumerable<OsuMenuItem> GetForwardActions(BeatmapInfo beatmap);
-
-        /// <summary>
-        /// Temporarily bypasses filters and shows all difficulties of the given beatmapset.
-        /// </summary>
-        /// <param name="beatmapSet">The beatmapset.</param>
-        void ScopeToBeatmapSet(BeatmapSetInfo beatmapSet);
-
-        /// <summary>
-        /// Removes the beatmapset scope and reverts the previously selected filters.
-        /// </summary>
-        void UnscopeBeatmapSet();
-
-        /// <summary>
-        /// Contains the currently scoped beatmapset. Used by external consumers for displaying its state.
-        /// Cannot be used to change the value, any changes must be done through <see cref="ScopeToBeatmapSet"/>
-        /// or <see cref="UnscopeBeatmapSet"/>.
-        /// </summary>
-        IBindable<BeatmapSetInfo?> ScopedBeatmapSet { get; }
     }
 }

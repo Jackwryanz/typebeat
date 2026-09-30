@@ -64,7 +64,6 @@ namespace typebeat.Game.Screens.Select
 
         private ConstrainedIconContainer difficultyIcon = null!;
         private StarRatingDisplay starRatingDisplay = null!;
-        private SpreadDisplay spreadDisplay = null!;
         private PanelLocalRankDisplay localRank = null!;
         private OsuSpriteText keyCountText = null!;
         private OsuSpriteText difficultyText = null!;
@@ -192,12 +191,6 @@ namespace typebeat.Game.Screens.Select
                                             Anchor = Anchor.CentreLeft,
                                             Scale = new Vector2(0.875f),
                                         },
-                                        spreadDisplay = new SpreadDisplay
-                                        {
-                                            Origin = Anchor.CentreLeft,
-                                            Anchor = Anchor.CentreLeft,
-                                            Selected = { BindTarget = Selected },
-                                        }
                                     },
                                 }
                             }
@@ -241,7 +234,6 @@ namespace typebeat.Game.Screens.Select
             authorText.Text = BeatmapsetsStrings.ShowDetailsMappedBy(beatmap.Metadata.Author.Username);
 
             computeStarRating();
-            spreadDisplay.Beatmap.Value = beatmap;
             updateKeyCount();
         }
 
@@ -255,7 +247,6 @@ namespace typebeat.Game.Screens.Select
             updateButton.BeatmapSet = null;
             localRank.Beatmap = null;
             starDifficultyBindable = null;
-            spreadDisplay.Beatmap.Value = null;
 
             starDifficultyCancellationSource?.Cancel();
         }
@@ -269,11 +260,7 @@ namespace typebeat.Game.Screens.Select
                 return;
 
             starDifficultyBindable = difficultyCache.GetBindableDifficulty(beatmap, starDifficultyCancellationSource.Token, SongSelect.DIFFICULTY_CALCULATION_DEBOUNCE);
-            starDifficultyBindable.BindValueChanged(starDifficulty =>
-            {
-                starRatingDisplay.Current.Value = starDifficulty.NewValue;
-                spreadDisplay.StarDifficulty.Value = starDifficulty.NewValue;
-            }, true);
+            starDifficultyBindable.BindValueChanged(starDifficulty => starRatingDisplay.Current.Value = starDifficulty.NewValue, true);
         }
 
         protected override void Update()
@@ -293,7 +280,6 @@ namespace typebeat.Game.Screens.Select
             var diffColour = starRatingDisplay.DisplayedDifficultyColour;
 
             AccentColour = diffColour;
-            spreadDisplay.Current.Colour = diffColour;
 
             backgroundBorder.Colour = diffColour;
             difficultyIcon.Colour = starRatingDisplay.DisplayedDifficultyTextColour;

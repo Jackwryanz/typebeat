@@ -20,7 +20,6 @@ using typebeat.Game.Database;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Graphics.UserInterfaceV2;
-using typebeat.Game.Input.Bindings;
 using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests.Responses;
@@ -39,8 +38,6 @@ namespace typebeat.Game.Screens.Select
 
         private const float corner_radius = 10;
 
-        public IBindable<BeatmapSetInfo?> ScopedBeatmapSet { get; } = new Bindable<BeatmapSetInfo?>();
-
         private SongSelectSearchTextBox searchTextBox = null!;
         private ShearedToggleButton showConvertedBeatmapsButton = null!;
         private DifficultyRangeSlider difficultyRangeSlider = null!;
@@ -52,9 +49,6 @@ namespace typebeat.Game.Screens.Select
         /// An optional method which can force certain criteria adjustments.
         /// </summary>
         public Action<FilterCriteria>? ApplyRequiredCriteria { get; set; }
-
-        [Resolved]
-        private ISongSelect? songSelect { get; set; }
 
         [Resolved]
         private IBindable<RulesetInfo> ruleset { get; set; } = null!;
@@ -130,7 +124,6 @@ namespace typebeat.Game.Screens.Select
                                     {
                                         RelativeSizeAxes = Axes.X,
                                         HoldFocus = true,
-                                        ScopedBeatmapSet = { BindTarget = ScopedBeatmapSet },
                                     },
                                 },
                                 new GridContainer
@@ -205,10 +198,6 @@ namespace typebeat.Game.Screens.Select
                                 },
                             },
                         },
-                        new ScopedBeatmapSetDisplay
-                        {
-                            ScopedBeatmapSet = { BindTarget = ScopedBeatmapSet },
-                        }
                     },
                 },
             };
@@ -278,7 +267,6 @@ namespace typebeat.Game.Screens.Select
 
             localUser.BindValueChanged(_ => updateCriteria());
             localUserFavouriteBeatmapSets.BindCollectionChanged((_, _) => updateCriteria());
-            ScopedBeatmapSet.BindValueChanged(_ => updateCriteria(clearScopedSet: false));
 
             updateCriteria();
         }
@@ -299,7 +287,6 @@ namespace typebeat.Game.Screens.Select
 
             var criteria = new FilterCriteria
             {
-                SelectedBeatmapSet = ScopedBeatmapSet.Value,
                 Sort = sortDropdown.Current.Value,
                 Group = groupDropdown.Current.Value?.Value ?? GroupMode.None,
                 AllowConvertedBeatmaps = showConvertedBeatmapsButton.Active.Value,
@@ -325,16 +312,8 @@ namespace typebeat.Game.Screens.Select
             return criteria;
         }
 
-        private void updateCriteria(bool clearScopedSet = true)
+        private void updateCriteria()
         {
-            if (clearScopedSet && ScopedBeatmapSet.Value != null)
-            {
-                songSelect?.UnscopeBeatmapSet();
-                // because `ScopedBeatmapSet` has a value change callback bound to it that calls `updateCriteria()` again,
-                // we can just do nothing other than clear it to avoid extra work and duplicated `CriteriaChanged` invocations
-                return;
-            }
-
             currentCriteria = CreateCriteria();
             CriteriaChanged?.Invoke(currentCriteria);
         }
@@ -362,26 +341,11 @@ namespace typebeat.Game.Screens.Select
 
         internal partial class SongSelectSearchTextBox : ShearedFilterTextBox
         {
-            public IBindable<BeatmapSetInfo?> ScopedBeatmapSet { get; } = new Bindable<BeatmapSetInfo?>();
-
-            protected override InnerSearchTextBox CreateInnerTextBox() => new InnerTextBox
-            {
-                ScopedBeatmapSet = { BindTarget = ScopedBeatmapSet },
-            };
+            protected override InnerSearchTextBox CreateInnerTextBox() => new InnerTextBox();
 
             private partial class InnerTextBox : InnerFilterTextBox
             {
-                public IBindable<BeatmapSetInfo?> ScopedBeatmapSet { get; } = new Bindable<BeatmapSetInfo?>();
-
                 public override bool HandleLeftRightArrows => false;
-
-                public override bool OnPressed(KeyBindingPressEvent<GlobalAction> e)
-                {
-                    if (e.Action == GlobalAction.Back && ScopedBeatmapSet.Value != null)
-                        return false;
-
-                    return base.OnPressed(e);
-                }
 
                 public override bool OnPressed(KeyBindingPressEvent<PlatformAction> e)
                 {

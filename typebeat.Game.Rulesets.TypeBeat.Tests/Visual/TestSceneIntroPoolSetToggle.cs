@@ -11,6 +11,7 @@ using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Testing;
 using typebeat.Game.Configuration;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Beatmaps.Drawables;
 using typebeat.Game.Database;
 using typebeat.Game.Graphics.Carousel;
 using typebeat.Game.Graphics.UserInterface;
@@ -166,6 +167,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("set moved back", () => groupOfSet(), () => Is.EqualTo("Not on intro"));
 
             AddStep("restore grouping", () => config.SetValue(OsuSetting.SongSelectGroupMode, GroupMode.None));
+        }
+
+        /// <summary>
+        /// Backlog 348: the difficulty spread button inherited from osu! is gone from both panels (it grouped its dots
+        /// by ruleset, and type!beat has one). The only button left on either panel is the update button, the set
+        /// panel's status row holds just the status pill and that button, and the standalone panel's star row holds
+        /// just the star rating. Rides on this scene because it already loads a multi-difficulty set in both panels.
+        /// </summary>
+        [Test]
+        public void PanelsCarryNoSpreadControl()
+        {
+            AddAssert("set panel's only button is the update button",
+                () => setPanel.ChildrenOfType<OsuAnimatedButton>().All(b => b is PanelUpdateBeatmapButton));
+            AddAssert("standalone panel's only button is the update button",
+                () => standalonePanel.ChildrenOfType<OsuAnimatedButton>().All(b => b is PanelUpdateBeatmapButton));
+
+            AddAssert("set status row is pill then update button", () =>
+            {
+                var row = (FillFlowContainer)setPanel.ChildrenOfType<BeatmapSetOnlineStatusPill>().Single().Parent!;
+                return row.Children.Count == 2 && row.Children[0] is BeatmapSetOnlineStatusPill && row.Children[1] is PanelUpdateBeatmapButton;
+            });
+
+            AddAssert("standalone star row is the star rating alone", () =>
+            {
+                var row = (FillFlowContainer)standalonePanel.ChildrenOfType<StarRatingDisplay>().Single().Parent!;
+                return row.Children.Count == 1;
+            });
         }
 
         private string? groupOfSet()
