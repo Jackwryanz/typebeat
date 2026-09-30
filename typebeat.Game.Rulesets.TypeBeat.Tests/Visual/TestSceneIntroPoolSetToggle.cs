@@ -158,13 +158,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddStep("group by enabled on intro", () => config.SetValue(OsuSetting.SongSelectGroupMode, GroupMode.EnabledOnIntro));
 
-            AddUntilStep("set starts not on intro", () => groupOfSet(), () => Is.EqualTo("Not on intro"));
+            // No difficulty declares a beatdrop, so before any override the set was never a candidate: "No intro set",
+            // not "Not on intro" (which is for sets with an authored beatdrop the user turned off).
+            AddUntilStep("set starts under no intro set", () => groupOfSet(), () => Is.EqualTo("No intro set"));
 
             AddStep("tick it", () => introToggle(setPanel.ContextMenuItems)!.Action.Value?.Invoke());
             AddUntilStep("set moved to enabled on intro", () => groupOfSet(), () => Is.EqualTo("Enabled on intro"));
 
             AddStep("untick it", () => introToggle(setPanel.ContextMenuItems)!.Action.Value?.Invoke());
-            AddUntilStep("set moved back", () => groupOfSet(), () => Is.EqualTo("Not on intro"));
+            AddUntilStep("set moved back", () => groupOfSet(), () => Is.EqualTo("No intro set"));
 
             AddStep("restore grouping", () => config.SetValue(OsuSetting.SongSelectGroupMode, GroupMode.None));
         }

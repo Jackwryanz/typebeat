@@ -403,9 +403,12 @@ namespace typebeat.Game.Screens.Select
         }
 
         /// <summary>
-        /// Whether a whole SET is in the game intro's pool: <see cref="Menu.IntroBeatdropPool.IsCandidate"/> over the set's
-        /// override and its difficulties' stored beatdrops, the exact rule the intro and the "Use on game intro" toggle
-        /// use, so this grouping cannot disagree with them. Every difficulty of a set lands in the same group.
+        /// Where a whole SET stands with the game intro, in three groups. "Enabled on intro" is exactly
+        /// <see cref="Menu.IntroBeatdropPool.IsCandidate"/> over the set's override and its difficulties' stored beatdrops,
+        /// the rule the intro and the "Use on game intro" toggle use, so this grouping cannot disagree with them. The
+        /// sets it excludes split by WHY: "Not on intro" has an authored beatdrop that the user turned off, "No intro set"
+        /// has no difficulty declaring a beatdrop at all (the mapper never stamped one), so nothing was turned off; it
+        /// was simply never a candidate. Every difficulty of a set lands in the same group.
         /// </summary>
         /// <remarks>
         /// Grouping cannot decode, so a difficulty whose stored facts are not yet computed counts as declaring no
@@ -413,11 +416,14 @@ namespace typebeat.Game.Screens.Select
         /// </remarks>
         internal static IEnumerable<GroupDefinition> DefineGroupByIntro(BeatmapSetInfo set)
         {
-            bool enabled = Menu.IntroBeatdropPool.IsCandidate(set.IntroPoolInclusion, StoredBeatmapFacts.AnyIntroBeatdrop(set.Beatmaps) == true);
+            bool anyBeatdrop = StoredBeatmapFacts.AnyIntroBeatdrop(set.Beatmaps) == true;
 
-            return enabled
-                ? new GroupDefinition(0, BeatmapCarouselFilterGroupingStrings.EnabledOnIntro).Yield()
-                : new GroupDefinition(1, BeatmapCarouselFilterGroupingStrings.NotOnIntro).Yield();
+            if (Menu.IntroBeatdropPool.IsCandidate(set.IntroPoolInclusion, anyBeatdrop))
+                return new GroupDefinition(0, BeatmapCarouselFilterGroupingStrings.EnabledOnIntro).Yield();
+
+            return anyBeatdrop
+                ? new GroupDefinition(1, BeatmapCarouselFilterGroupingStrings.NotOnIntro).Yield()
+                : new GroupDefinition(2, BeatmapCarouselFilterGroupingStrings.NoIntroSet).Yield();
         }
 
         /// <summary>

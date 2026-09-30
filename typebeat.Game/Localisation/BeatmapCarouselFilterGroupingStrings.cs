@@ -151,6 +151,11 @@ namespace typebeat.Game.Localisation
         public static LocalisableString NotOnIntro => new TranslatableString(getKey(@"not_on_intro"), @"Not on intro");
 
         /// <summary>
+        /// "No intro set"
+        /// </summary>
+        public static LocalisableString NoIntroSet => new TranslatableString(getKey(@"no_intro_set"), @"No intro set");
+
+        /// <summary>
         /// "No language set"
         /// </summary>
         public static LocalisableString NoLanguageSet => new TranslatableString(getKey(@"no_language_set"), @"No language set");

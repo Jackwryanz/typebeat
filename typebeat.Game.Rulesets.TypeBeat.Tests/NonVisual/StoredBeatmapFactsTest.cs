@@ -202,25 +202,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         // ---- group by enabled on intro ----
 
-        [TestCase(null, true, true)]
-        [TestCase(null, false, false)]
-        [TestCase(true, false, true)]
-        [TestCase(true, true, true)]
-        [TestCase(false, true, false)]
-        [TestCase(false, false, false)]
-        public void EnabledOnIntroIsTheIntrosOwnRule(bool? inclusion, bool anyBeatdrop, bool expected)
+        // The first group is the intro's own candidacy rule; the sets it excludes split by whether there
+        // was ever an intro to turn off (an authored beatdrop) or not.
+        [TestCase(null, true, "Enabled on intro")]
+        [TestCase(null, false, "No intro set")]
+        [TestCase(true, false, "Enabled on intro")]
+        [TestCase(true, true, "Enabled on intro")]
+        [TestCase(false, true, "Not on intro")]
+        [TestCase(false, false, "No intro set")]
+        public void EnabledOnIntroIsTheIntrosOwnRule(bool? inclusion, bool anyBeatdrop, string expected)
         {
             var set = new BeatmapSetInfo { IntroPoolInclusion = inclusion };
             difficulty(set, 100, false);
             difficulty(set, 120, anyBeatdrop);
 
             string group = title(BeatmapCarouselFilterGrouping.DefineGroupByIntro(set).Single());
+            bool candidate = IntroBeatdropPool.IsCandidate(inclusion, anyBeatdrop);
 
             Assert.Multiple(() =>
             {
-                Assert.That(group, Is.EqualTo(expected ? "Enabled on intro" : "Not on intro"));
-                Assert.That(expected, Is.EqualTo(IntroBeatdropPool.IsCandidate(inclusion, anyBeatdrop)), "the case table is the intro's own");
-                Assert.That(IntroBeatdropPool.StoredCandidacy(inclusion, set.Beatmaps), Is.EqualTo(expected), "and the intro's decode-free pre-check agrees");
+                Assert.That(group, Is.EqualTo(expected));
+                Assert.That(group == "Enabled on intro", Is.EqualTo(candidate), "the first group is the intro's own rule");
+                Assert.That(IntroBeatdropPool.StoredCandidacy(inclusion, set.Beatmaps), Is.EqualTo(candidate), "and the intro's decode-free pre-check agrees");
             });
         }
 
@@ -232,7 +235,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(title(BeatmapCarouselFilterGrouping.DefineGroupByIntro(set).Single()), Is.EqualTo("Not on intro"));
+                Assert.That(title(BeatmapCarouselFilterGrouping.DefineGroupByIntro(set).Single()), Is.EqualTo("No intro set"));
                 Assert.That(IntroBeatdropPool.StoredCandidacy(null, set.Beatmaps), Is.Null, "the intro decodes it instead");
             });
         }
@@ -247,14 +250,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var outOfPool = new BeatmapSetInfo { IntroPoolInclusion = false };
             var outOfPoolOnly = difficulty(outOfPool, 90, true);
 
-            var groups = run(GroupMode.EnabledOnIntro, outOfPool, inPool);
+            var neverStamped = new BeatmapSetInfo();
+            var neverStampedOnly = difficulty(neverStamped, 90, false);
+
+            var groups = run(GroupMode.EnabledOnIntro, neverStamped, outOfPool, inPool);
 
             Assert.Multiple(() =>
             {
                 Assert.That(groupOf(groups, inPoolEasy), Is.EqualTo("Enabled on intro"), "a set's difficulties land together");
                 Assert.That(groupOf(groups, inPoolHard), Is.EqualTo("Enabled on intro"));
                 Assert.That(groupOf(groups, outOfPoolOnly), Is.EqualTo("Not on intro"));
-                Assert.That(groups.Keys, Is.EqualTo(new[] { "Enabled on intro", "Not on intro" }));
+                Assert.That(groupOf(groups, neverStampedOnly), Is.EqualTo("No intro set"));
+                Assert.That(groups.Keys, Is.EqualTo(new[] { "Enabled on intro", "Not on intro", "No intro set" }));
             });
         }
 
