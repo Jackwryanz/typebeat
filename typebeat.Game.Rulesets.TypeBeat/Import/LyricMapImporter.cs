@@ -113,15 +113,157 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (candidates.Count == 0)
                 return null;
 
-            return candidates.FirstOrDefault(EnvironmentReady) ?? candidates[0];
+            // A completed install first, then a venv that exists but has not been confirmed (it may
+            // still verify, see TryAdoptEnvironmentAsync), then the closest component.
+            return candidates.FirstOrDefault(EnvironmentReady) ?? candidates.FirstOrDefault(EnvironmentPresent) ?? candidates[0];
         }
 
         /// <summary>Single-start-directory convenience overload (test parity with the standalone).</summary>
         public static string? ResolveLyricLabDir(string? configuredPath, string startDirectory, int maxAscendLevels = 6)
             => ResolveLyricLabDir(configuredPath, new[] { startDirectory }, maxAscendLevels);
 
-        /// <summary>The aligner venv exists and is runnable.</summary>
-        public static bool EnvironmentReady(string lyricLabDir) => File.Exists(PythonExeFor(lyricLabDir));
+        /// <summary>
+        /// The setup sentinel (backlog 353), inside <c>.venv</c>: the setup scripts write it as the
+        /// LAST act of a fully successful run, and the game writes it itself when a venv from before
+        /// the sentinel existed proves its imports load (<see cref="TryAdoptEnvironmentAsync"/>). The
+        /// literal is shared with <c>lyriclab/setup.ps1</c> and <c>lyriclab/setup.sh</c>, which a
+        /// test pins.
+        /// </summary>
+        public const string SETUP_SENTINEL_FILE = ".typebeat-setup-ok";
+
+        public static string SetupSentinelFor(string lyricLabDir) => Path.Combine(lyricLabDir, ".venv", SETUP_SENTINEL_FILE);
+
+        /// <summary>
+        /// The aligner venv is INSTALLED: its python exists AND a setup completed (the sentinel).
+        /// A python alone is not enough: before backlog 349 a failed torch install could leave one
+        /// behind, and this check trusting it was what kept such installs broken forever.
+        /// </summary>
+        public static bool EnvironmentReady(string lyricLabDir)
+            => EnvironmentPresent(lyricLabDir) && File.Exists(SetupSentinelFor(lyricLabDir));
+
+        /// <summary>A venv python exists, whether or not a setup ever completed.</summary>
+        public static bool EnvironmentPresent(string lyricLabDir) => File.Exists(PythonExeFor(lyricLabDir));
+
+        /// <summary>
+        /// A venv with no setup sentinel: either an install that never finished, or a healthy one
+        /// made before the sentinel existed. <see cref="TryAdoptEnvironmentAsync"/> tells them apart.
+        /// </summary>
+        public static bool EnvironmentNeedsRepair(string lyricLabDir) => EnvironmentPresent(lyricLabDir) && !EnvironmentReady(lyricLabDir);
+
+        /// <summary>The modules the aligner imports, checked by the setup scripts and by the adoption probe alike.</summary>
+        public const string ALIGNER_IMPORTS = "torch, torchaudio, demucs, soundfile, pyphen, num2words";
+
+        /// <summary>
+        /// How long the adoption probe may take. A cold torch import is a few seconds on an SSD and
+        /// can be tens on a slow disk; past this the environment is treated as not verified.
+        /// </summary>
+        private static readonly TimeSpan probe_timeout = TimeSpan.FromMinutes(2);
+
+        /// <summary>
+        /// ADOPTS a sentinel-less venv when it works: runs the venv's python on the aligner's imports
+        /// and, when they all load, writes the sentinel the setup would have written, so an install
+        /// made before the sentinel existed (or built by hand from the README) keeps working without
+        /// a re-download. True when the environment is (now) ready; false when there is no venv or
+        /// the imports fail, in which case nothing is changed. Never deletes anything.
+        /// </summary>
+        public static async Task<bool> TryAdoptEnvironmentAsync(string lyricLabDir, CancellationToken token)
+        {
+            if (EnvironmentReady(lyricLabDir))
+                return true;
+
+            if (!EnvironmentPresent(lyricLabDir))
+                return false;
+
+            if (!await probeImportsAsync(lyricLabDir, token).ConfigureAwait(false))
+                return false;
+
+            try
+            {
+                await File.WriteAllTextAsync(SetupSentinelFor(lyricLabDir),
+                    $"adopted=true\ncreated={DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)}\n", token).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Aligner environment verified but its setup sentinel could not be written: {e.Message}", LoggingTarget.Runtime, LogLevel.Important);
+                return false;
+            }
+
+            Logger.Log($"Adopted the existing aligner environment at {lyricLabDir}: its imports load, setup sentinel written", LoggingTarget.Runtime);
+            return true;
+        }
+
+        private static async Task<bool> probeImportsAsync(string lyricLabDir, CancellationToken token)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = PythonExeFor(lyricLabDir),
+                WorkingDirectory = lyricLabDir,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            psi.ArgumentList.Add("-c");
+            psi.ArgumentList.Add($"import {ALIGNER_IMPORTS}");
+
+            try
+            {
+                using var process = Process.Start(psi);
+
+                if (process == null)
+                    return false;
+
+                process.StandardInput.Close();
+                var stdout = process.StandardOutput.ReadToEndAsync(token);
+                var stderr = process.StandardError.ReadToEndAsync(token);
+
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                timeout.CancelAfter(probe_timeout);
+
+                try
+                {
+                    await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { process.Kill(entireProcessTree: true); }
+                    catch { }
+
+                    Logger.Log($"Aligner environment probe did not finish within {probe_timeout.TotalSeconds:0}s", LoggingTarget.Runtime, LogLevel.Important);
+                    return false;
+                }
+
+                if (process.ExitCode == 0)
+                    return true;
+
+                string output = (await stdout.ConfigureAwait(false)) + (await stderr.ConfigureAwait(false));
+                Logger.Log($"Aligner environment probe failed (exit code {process.ExitCode}): {output.Trim()}", LoggingTarget.Runtime, LogLevel.Important);
+                return false;
+            }
+            catch (Exception e) when (e is not OperationCanceledException || !token.IsCancellationRequested)
+            {
+                Logger.Log($"Aligner environment probe could not run: {e.Message}", LoggingTarget.Runtime, LogLevel.Important);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Whether an aligner failure's output says the venv cannot import what the aligner needs,
+        /// the runtime signature of an install that never finished.
+        /// </summary>
+        public static bool IsMissingPackageFailure(string output)
+            => output.Contains("ModuleNotFoundError", StringComparison.Ordinal)
+               || output.Contains("No module named", StringComparison.Ordinal)
+               || output.Contains("ImportError", StringComparison.Ordinal);
+
+        /// <summary>
+        /// What a player is told to do about a venv that cannot import its packages. A bare clause,
+        /// wrapped by the import surfaces like every other error.
+        /// </summary>
+        public const string REPAIR_SUGGESTION = "the local auto-aligner's install is incomplete (its Python packages do not load). "
+                                                + "Repair it in Settings > Experimental > Repair local auto-aligner";
 
         public static bool IsLyricLabDir(string dir)
             => !string.IsNullOrEmpty(dir) && File.Exists(Path.Combine(dir, aligner_script));
@@ -167,19 +309,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         /// <summary>
         /// One-time environment bootstrap: runs the component's setup script (venv + pinned packages,
-        /// a multi-GB first-time download). No-op when the venv already exists. Not auto-invoked by
-        /// <see cref="BuildOszAsync"/> (which prefers the instant LRC fallback); exposed for an
-        /// explicit "set up aligner" action.
+        /// a multi-GB first-time download). No-op when a COMPLETED install exists (venv python plus
+        /// the setup sentinel). Not auto-invoked by <see cref="BuildOszAsync"/> (which prefers the
+        /// instant LRC fallback); exposed for an explicit "set up aligner" action.
+        ///
+        /// <para>REPAIR (backlog 353). A venv WITHOUT the sentinel is either a setup that never
+        /// finished or a healthy install from before the sentinel existed. It is probed first
+        /// (<see cref="TryAdoptEnvironmentAsync"/>): when its imports load it is adopted as it stands,
+        /// in seconds, and when they do not it is DELETED and the setup re-run from scratch, which is
+        /// how a half-broken install heals on one click.</para>
         /// </summary>
         public static async Task<LyricImportResult> BootstrapEnvironmentAsync(string lyricLabDir, Action<string> progress, CancellationToken token, string device = "cpu")
         {
             if (EnvironmentReady(lyricLabDir))
                 return LyricImportResult.Ok(string.Empty);
 
+            if (EnvironmentPresent(lyricLabDir))
+            {
+                progress("checking the existing aligner environment...");
+
+                if (await TryAdoptEnvironmentAsync(lyricLabDir, token).ConfigureAwait(false))
+                {
+                    progress("aligner environment ready");
+                    return LyricImportResult.Ok(string.Empty);
+                }
+
+                if (token.IsCancellationRequested)
+                    return LyricImportResult.Fail("environment setup cancelled");
+            }
+
             string script = Path.Combine(lyricLabDir, SetupScriptName);
 
             if (!File.Exists(script))
                 return LyricImportResult.Fail($"aligner environment missing and no {SetupScriptName} to build it in {lyricLabDir}");
+
+            // Only now, with a script to rebuild it, does a broken venv go.
+            string venv = Path.Combine(lyricLabDir, ".venv");
+
+            if (Directory.Exists(venv))
+            {
+                progress("the existing aligner environment is incomplete, rebuilding it...");
+
+                try
+                {
+                    Directory.Delete(venv, recursive: true);
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($"Could not remove the incomplete aligner environment at {venv}: {e}", LoggingTarget.Runtime, LogLevel.Important);
+                    return LyricImportResult.Fail("the old aligner environment could not be removed (close anything that might be using it and retry; the details are in the game log)");
+                }
+            }
 
             progress(device == "cuda"
                 ? "setting up the aligner environment (GPU), one-time download of packages (~2.5 GB), please wait..."
@@ -230,7 +410,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             if (!EnvironmentReady(lyricLabDir))
             {
-                Logger.Log($"Aligner environment setup finished but left no venv python at {PythonExeFor(lyricLabDir)}: {tail}", LoggingTarget.Runtime, LogLevel.Important);
+                Logger.Log($"Aligner environment setup exited 0 but left no venv python and setup sentinel at {SetupSentinelFor(lyricLabDir)}: {tail}", LoggingTarget.Runtime,
+                    LogLevel.Important);
                 return LyricImportResult.Fail(setup_failed_message);
             }
 
@@ -541,6 +722,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string? lyricLabDir = ResolveLyricLabDir(configuredLyricLabPath, startDirectories);
             bool alignerUsable = lyricLabDir != null && EnvironmentReady(lyricLabDir);
 
+            // A venv with no setup sentinel gets ONE probe here, where the import is already a
+            // minutes-long job: a healthy install from before the sentinel is adopted and used, a
+            // broken one is skipped (never deleted from here) and the player is pointed at Repair.
+            if (!alignerUsable && lyricLabDir != null && EnvironmentPresent(lyricLabDir))
+            {
+                progress("checking the aligner environment...");
+                alignerUsable = await TryAdoptEnvironmentAsync(lyricLabDir, token).ConfigureAwait(false);
+
+                if (token.IsCancellationRequested)
+                    return (LyricImportResult.Fail("import cancelled"), null);
+            }
+
             if (alignerUsable)
             {
                 string lyricsTemp = Path.Combine(Path.GetTempPath(), "typebeat_align", Guid.NewGuid().ToString("N") + ".txt");
@@ -573,8 +766,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             {
                 progress(lyricLabDir == null
                     ? "no local aligner environment found"
-                    : $"local aligner environment not set up (run lyriclab/{SetupScriptName} for word timing)");
+                    : EnvironmentPresent(lyricLabDir)
+                        ? $"local aligner unavailable: {REPAIR_SUGGESTION}"
+                        : $"local aligner environment not set up (run lyriclab/{SetupScriptName} for word timing)");
             }
+
+            bool needsRepair = lyricLabDir != null && EnvironmentNeedsRepair(lyricLabDir);
 
             // LRC-only fallback: line-granularity timing straight from the line stamps, and the last
             // rung now that server-side alignment is retired. With nothing to fall back on, the hint
@@ -588,8 +785,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                           + "so the unstamped ones have no time to fall back on. "
                         : "no auto-aligner is available and the lyrics have no [mm:ss.xx] line timestamps "
                           + "to fall back on. ")
-                    + "Install the local auto-aligner (Settings > Experimental > "
-                    + "Install the local auto-aligner), or add [mm:ss.xx] line stamps to the lyrics."), null);
+                    + (needsRepair
+                        ? "The local auto-aligner's install is incomplete: repair it (Settings > Experimental > "
+                          + "Repair local auto-aligner), or add [mm:ss.xx] line stamps to the lyrics."
+                        : "Install the local auto-aligner (Settings > Experimental > "
+                          + "Install the local auto-aligner), or add [mm:ss.xx] line stamps to the lyrics.")), null);
             }
 
             return synthesizeFromLrc(lyricsContent, progress, language);
@@ -605,6 +805,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             progress("line-timed alignment ready (no word-level timing)");
             return (LyricImportResult.Ok(string.Empty), fallbackTiming);
+        }
+
+        /// <summary>
+        /// The result of an aligner run that exited non-zero. "The venv exists but python cannot
+        /// import torch" means the install is demonstrably broken whatever its sentinel says: the
+        /// sentinel is withdrawn so Settings offers Repair (and the next import probes instead of
+        /// trusting it), and the player is told that Repair is the fix. Any other failure keeps
+        /// its exit code and output tail, as before.
+        /// </summary>
+        public static LyricImportResult AlignerFailure(string lyricLabDir, int exitCode, string tail)
+        {
+            if (!IsMissingPackageFailure(tail))
+                return LyricImportResult.Fail($"aligner exited with code {exitCode}: {tail}");
+
+            Logger.Log($"Aligner could not import its packages (exit code {exitCode}), marking the environment for repair: {tail}", LoggingTarget.Runtime, LogLevel.Important);
+
+            try
+            {
+                File.Delete(SetupSentinelFor(lyricLabDir));
+            }
+            catch
+            {
+                // Best effort: the message still names the fix.
+            }
+
+            return LyricImportResult.Fail(REPAIR_SUGGESTION);
         }
 
         /// <summary>Runs the aligner subprocess and returns the produced timing.json text on success.</summary>
@@ -665,7 +891,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return (LyricImportResult.Fail("import cancelled"), null);
 
             if (exitCode != 0)
-                return (LyricImportResult.Fail($"aligner exited with code {exitCode}: {tail}"), null);
+                return (AlignerFailure(lyricLabDir, exitCode, tail), null);
 
             string? timingPath = Directory.Exists(outDir)
                 ? Directory.EnumerateFiles(outDir, "*.timing.json").OrderBy(f => f, StringComparer.OrdinalIgnoreCase).FirstOrDefault()

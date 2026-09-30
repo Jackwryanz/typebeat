@@ -151,6 +151,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
         }
 
+        public bool NeedsRepair
+        {
+            get
+            {
+                string? dir = resolvedAlignerDir();
+                return dir != null && LyricMapImporter.EnvironmentNeedsRepair(dir);
+            }
+        }
+
         public string? InstalledDevice
         {
             get
@@ -304,12 +313,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string device = GpuDetected ? "cuda" : "cpu";
 
             // A previously built environment of the other torch flavour must be rebuilt; the venv
-            // pins CPU or CUDA wheels at install time.
+            // pins CPU or CUDA wheels at install time. Checked on the venv's PRESENCE, not on a
+            // completed setup, so a sentinel-less venv of the wrong flavour is rebuilt rather than
+            // adopted by the repair probe.
             try
             {
                 string marker = Path.Combine(target, LyricMapImporter.DEVICE_MARKER_FILE);
 
-                if (LyricMapImporter.EnvironmentReady(target) && File.Exists(marker)
+                if (LyricMapImporter.EnvironmentPresent(target) && File.Exists(marker)
                     && !File.ReadAllText(marker).Trim().Equals(device, StringComparison.OrdinalIgnoreCase))
                 {
                     progress("switching aligner device flavour, rebuilding the environment...");

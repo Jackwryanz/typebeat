@@ -188,7 +188,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Directory.CreateDirectory(Path.GetDirectoryName(repoPython)!);
             File.WriteAllText(repoPython, "stub exe");
             Assert.That(LyricMapImporter.ResolveLyricLabDir(null, start), Is.EqualTo(repoLab));
+            Assert.That(LyricMapImporter.EnvironmentPresent(repoLab), Is.True);
+
+            // A python alone is not an install (backlog 353): READY needs the setup sentinel too,
+            // and a completed sibling now beats the closer, unconfirmed vendored venv.
+            Assert.That(LyricMapImporter.EnvironmentReady(repoLab), Is.False);
+            Assert.That(LyricMapImporter.EnvironmentNeedsRepair(repoLab), Is.True);
+            File.WriteAllText(LyricMapImporter.SetupSentinelFor(siblingLab), "ok");
+            Assert.That(LyricMapImporter.ResolveLyricLabDir(null, start), Is.EqualTo(siblingLab));
+            File.WriteAllText(LyricMapImporter.SetupSentinelFor(repoLab), "ok");
             Assert.That(LyricMapImporter.EnvironmentReady(repoLab), Is.True);
+            Assert.That(LyricMapImporter.ResolveLyricLabDir(null, start), Is.EqualTo(repoLab));
         }
 
         [Test]
@@ -655,6 +665,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string python = LyricMapImporter.PythonExeFor(lab);
             Directory.CreateDirectory(Path.GetDirectoryName(python)!);
             File.WriteAllText(python, "stub exe");
+            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11\n");
             Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
 
             bool anyProgress = false;
@@ -703,6 +714,293 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(result.Error, Does.Not.Contain("No suitable Python"));
             Assert.That(result.Error, Does.Not.Contain("103"));
         }
+
+        #region Setup sentinel and repair (backlog 353)
+
+        private string makeLab()
+        {
+            string lab = Path.Combine(tempRoot, "lyriclab");
+            Directory.CreateDirectory(lab);
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "# stub");
+            return lab;
+        }
+
+        /// <summary>
+        /// A venv python that really runs: exit 0 whatever it is asked (its "imports load") or exit
+        /// non-zero (they do not). On Windows a copy of doskey.exe / where.exe, which do exactly that
+        /// for "-c ..." without reading stdin; elsewhere a shell script.
+        /// </summary>
+        private static void writeFakePython(string lab, bool importsLoad)
+        {
+            string python = LyricMapImporter.PythonExeFor(lab);
+            Directory.CreateDirectory(Path.GetDirectoryName(python)!);
+
+            if (OperatingSystem.IsWindows())
+            {
+                File.Copy(Path.Combine(Environment.SystemDirectory, importsLoad ? "doskey.exe" : "where.exe"), python, overwrite: true);
+                return;
+            }
+
+            File.WriteAllText(python, importsLoad
+                ? "#!/bin/sh\nexit 0\n"
+                : "#!/bin/sh\necho \"ModuleNotFoundError: No module named 'torch'\" >&2\nexit 1\n");
+            File.SetUnixFileMode(python, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        /// <summary>Fake setup scripts that rebuild a venv WITH its sentinel, noting whether the old venv was still there.</summary>
+        private static void writeRebuildingSetupScripts(string lab)
+        {
+            File.WriteAllText(Path.Combine(lab, "setup.ps1"),
+                "if (Test-Path '.venv\\canary.txt') { Set-Content -Path 'saw-canary.txt' -Value 'yes' }\n"
+                + "New-Item -ItemType Directory -Force -Path '.venv\\Scripts' | Out-Null\n"
+                + "Set-Content -Path '.venv\\Scripts\\python.exe' -Value 'rebuilt'\n"
+                + $"Set-Content -Path '.venv\\{LyricMapImporter.SETUP_SENTINEL_FILE}' -Value 'python=3.11'\n"
+                + "exit 0\n");
+            File.WriteAllText(Path.Combine(lab, "setup.sh"),
+                "if [ -e .venv/canary.txt ]; then echo yes > saw-canary.txt; fi\n"
+                + "mkdir -p .venv/bin\necho rebuilt > .venv/bin/python\n"
+                + $"echo python=3.11 > .venv/{LyricMapImporter.SETUP_SENTINEL_FILE}\n"
+                + "exit 0\n");
+        }
+
+        [Test]
+        public async Task BootstrapDoesNotShortCircuitOnASentinelLessVenv()
+        {
+            // THE bug: a python.exe left by a setup whose torch install failed read as installed, so
+            // the setup never ran again. That python cannot even start here (it is a text file).
+            string lab = makeLab();
+            string python = LyricMapImporter.PythonExeFor(lab);
+            Directory.CreateDirectory(Path.GetDirectoryName(python)!);
+            File.WriteAllText(python, "stub exe");
+
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.False);
+            Assert.That(LyricMapImporter.EnvironmentNeedsRepair(lab), Is.True);
+
+            var lines = new List<string>();
+            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+                lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None).ConfigureAwait(false);
+
+            // No setup script to rebuild with, so it fails, and it does so without having deleted
+            // the venv it had no way to replace.
+            Assert.That(result.Success, Is.False, "a sentinel-less venv must not short-circuit to Ok");
+            Assert.That(result.Error, Does.Contain(LyricMapImporter.SetupScriptName));
+            Assert.That(File.Exists(python), Is.True);
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.False);
+            lock (lines)
+                Assert.That(lines, Has.Some.Contains("checking the existing aligner environment"));
+        }
+
+        [Test]
+        public async Task BootstrapAdoptsAWorkingSentinelLessVenv()
+        {
+            // A healthy install from before the sentinel: its imports load, so it is kept as it is
+            // and gets the sentinel the setup would have written. No setup script is present, so
+            // any attempt to rebuild would fail this test.
+            string lab = makeLab();
+            writeFakePython(lab, importsLoad: true);
+            File.WriteAllText(Path.Combine(lab, ".venv", "canary.txt"), "the existing environment");
+
+            var result = await LyricMapImporter.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(File.Exists(LyricMapImporter.SetupSentinelFor(lab)), Is.True);
+            Assert.That(File.Exists(Path.Combine(lab, ".venv", "canary.txt")), Is.True, "adoption must not touch the venv");
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+        }
+
+        [Test]
+        public async Task BootstrapRepairDeletesABrokenVenvAndRerunsSetup()
+        {
+            // The one-click heal: a sentinel-less venv whose imports fail is deleted BEFORE the setup
+            // re-runs (the fake setup notes whether the old venv was still there), and the rebuilt
+            // environment is ready.
+            string lab = makeLab();
+            writeFakePython(lab, importsLoad: false);
+            File.WriteAllText(Path.Combine(lab, ".venv", "canary.txt"), "from the broken install");
+            writeRebuildingSetupScripts(lab);
+
+            var lines = new List<string>();
+            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+                lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(File.Exists(Path.Combine(lab, ".venv", "canary.txt")), Is.False, "the broken venv should be gone");
+            Assert.That(File.Exists(Path.Combine(lab, "saw-canary.txt")), Is.False, "the venv must be deleted before the setup re-runs");
+            Assert.That(File.ReadAllText(LyricMapImporter.PythonExeFor(lab)).Trim(), Is.EqualTo("rebuilt"));
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            lock (lines)
+                Assert.That(lines, Has.Some.Contains("incomplete, rebuilding"));
+        }
+
+        [Test]
+        public async Task BootstrapFailsWhenSetupExitsCleanlyWithoutWritingTheSentinel()
+        {
+            // A setup that exits 0 but never reached its last act did not complete: plain sentence.
+            string lab = makeLab();
+            File.WriteAllText(Path.Combine(lab, "setup.ps1"),
+                "New-Item -ItemType Directory -Force -Path '.venv\\Scripts' | Out-Null\nSet-Content -Path '.venv\\Scripts\\python.exe' -Value 'x'\nexit 0\n");
+            File.WriteAllText(Path.Combine(lab, "setup.sh"), "mkdir -p .venv/bin\necho x > .venv/bin/python\nexit 0\n");
+
+            var result = await LyricMapImporter.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Error, Does.Contain("could not finish"));
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.False);
+        }
+
+        /// <summary>The game's vendored lyriclab/ (the source of the shipped scripts), found above the test binaries.</summary>
+        private static string vendoredLyricLab()
+        {
+            for (var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory); dir != null; dir = dir.Parent)
+            {
+                string candidate = Path.Combine(dir.FullName, "lyriclab");
+
+                if (File.Exists(Path.Combine(candidate, "setup.ps1")) && File.Exists(Path.Combine(candidate, "setup.sh")))
+                    return candidate;
+            }
+
+            Assert.Fail("the vendored lyriclab/ was not found above the test directory");
+            return null!;
+        }
+
+        [Test]
+        public void ShippedSetupScriptsWriteTheSentinelTheGameReads()
+        {
+            // The sentinel's name is shared by three files; a drift silently makes every install
+            // read as needing repair forever (or, the other way, never).
+            string lab = vendoredLyricLab();
+
+            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.ps1")), Does.Contain($"$sentinel = '.venv\\{LyricMapImporter.SETUP_SENTINEL_FILE}'"));
+            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.sh")), Does.Contain($"SENTINEL='.venv/{LyricMapImporter.SETUP_SENTINEL_FILE}'"));
+
+            // And the setup's own import check is the adoption probe's, so a venv the game adopts
+            // passed exactly what a fresh setup would have required of it.
+            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.ps1")), Does.Contain($"import {LyricMapImporter.ALIGNER_IMPORTS}\""));
+            Assert.That(File.ReadAllText(Path.Combine(lab, "setup.sh")), Does.Contain($"import {LyricMapImporter.ALIGNER_IMPORTS}\""));
+        }
+
+        [Test]
+        public async Task ShippedSetupScriptRunAgainstAFakeUvEndsReady()
+        {
+            // The real vendored setup script, driven end to end by the game's bootstrap against a
+            // fake uv (nothing is downloaded): uv "venv" drops a python that exits 0 for every
+            // "-c" step, "pip" succeeds. PATH is narrowed to the fake plus the system, so a real
+            // uv on this machine can never be reached.
+            string shipped = vendoredLyricLab();
+            string lab = makeLab();
+            File.Copy(Path.Combine(shipped, LyricMapImporter.SetupScriptName), Path.Combine(lab, LyricMapImporter.SetupScriptName));
+
+            string fakeUv = Path.Combine(tempRoot, "fakeuv");
+            Directory.CreateDirectory(fakeUv);
+            string path;
+
+            if (OperatingSystem.IsWindows())
+            {
+                File.WriteAllText(Path.Combine(fakeUv, "uv.cmd"), string.Join("\r\n",
+                    "@echo off",
+                    "if /i \"%~1\"==\"venv\" goto venv",
+                    "exit /b 0",
+                    ":venv",
+                    "if not exist .venv\\Scripts mkdir .venv\\Scripts",
+                    "copy /y \"%SystemRoot%\\System32\\doskey.exe\" .venv\\Scripts\\python.exe >nul",
+                    "exit /b %errorlevel%") + "\r\n");
+                path = string.Join(Path.PathSeparator, fakeUv, Environment.SystemDirectory, Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0"));
+            }
+            else
+            {
+                string uv = Path.Combine(fakeUv, "uv");
+                File.WriteAllText(uv, "#!/bin/sh\nif [ \"$1\" = venv ]; then mkdir -p .venv/bin; printf '#!/bin/sh\\nexit 0\\n' > .venv/bin/python; chmod +x .venv/bin/python; fi\nexit 0\n");
+                File.SetUnixFileMode(uv, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                path = string.Join(Path.PathSeparator, fakeUv, "/usr/bin", "/bin");
+            }
+
+            string? originalPath = Environment.GetEnvironmentVariable("PATH");
+            var lines = new List<string>();
+            LyricImportResult result;
+
+            try
+            {
+                Environment.SetEnvironmentVariable("PATH", path);
+                result = await LyricMapImporter.BootstrapEnvironmentAsync(
+                    lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("PATH", originalPath);
+            }
+
+            lock (lines)
+                Assert.That(result.Success, Is.True, $"{result.Error}\n{string.Join("\n", lines)}");
+
+            string sentinel = File.ReadAllText(LyricMapImporter.SetupSentinelFor(lab));
+            Assert.That(sentinel, Does.Contain("python=3.11"));
+            Assert.That(sentinel, Does.Contain("device=cpu"));
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            lock (lines)
+                Assert.That(lines, Has.Some.Contains("verifying the installed packages import"));
+        }
+
+        [Test]
+        public async Task ImportWithABrokenSentinelLessVenvPointsAtRepairAndDeletesNothing()
+        {
+            string lab = makeLab();
+            writeFakePython(lab, importsLoad: false);
+            string audioPath = Path.Combine(tempRoot, "a.mp3");
+            File.WriteAllText(audioPath, "fake");
+
+            var lines = new List<string>();
+            var (result, timing) = await LyricMapImporter.ProduceTimingJsonAsync(
+                audioPath, "just some words\nwith no timestamps\n", "A", "B", lab, Array.Empty<string>(),
+                line => { lock (lines) lines.Add(line); }, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(timing, Is.Null);
+            Assert.That(result.Error, Does.Contain("Repair local auto-aligner"));
+            Assert.That(LyricMapImporter.EnvironmentPresent(lab), Is.True, "an import must never delete the venv");
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.False);
+        }
+
+        [Test]
+        public async Task ImportAdoptsAWorkingSentinelLessVenv()
+        {
+            string lab = makeLab();
+            writeFakePython(lab, importsLoad: true);
+            string audioPath = Path.Combine(tempRoot, "a.mp3");
+            File.WriteAllText(audioPath, "fake");
+
+            // The fake python then "runs" the aligner and produces nothing, so the import still
+            // fails; what is pinned is that the probe adopted the venv on the way.
+            await LyricMapImporter.ProduceTimingJsonAsync(
+                audioPath, "just some words\n", "A", "B", lab, Array.Empty<string>(), _ => { }, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+        }
+
+        [Test]
+        public void AlignerThatCannotImportItsPackagesSuggestsRepair()
+        {
+            // The runtime half: an installed (sentinel) venv whose python cannot import torch. The
+            // sentinel is withdrawn so Settings offers Repair, and the error says so in words.
+            string lab = makeLab();
+            writeFakePython(lab, importsLoad: true);
+            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11");
+
+            var result = LyricMapImporter.AlignerFailure(lab, 1, "Traceback (most recent call last):\nModuleNotFoundError: No module named 'torch'");
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Error, Does.Contain("Repair local auto-aligner"));
+            Assert.That(result.Error, Does.Not.Contain("Traceback"));
+            Assert.That(LyricMapImporter.EnvironmentNeedsRepair(lab), Is.True);
+
+            // Any other failure is reported as it always was and leaves the install alone.
+            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11");
+            var other = LyricMapImporter.AlignerFailure(lab, 2, "RuntimeError: demucs did not produce vocals.wav");
+
+            Assert.That(other.Error, Does.StartWith("aligner exited with code 2"));
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+        }
+
+        #endregion
 
         #region Authoring marks through the import (backlog 202)
 

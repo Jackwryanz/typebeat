@@ -1,8 +1,14 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+#nullable enable
+
+using System;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using NUnit.Framework;
+using typebeat.Game.Screens.ImportLyrics;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -79,6 +85,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // headless scene: the button must go dead rather than throw on a click nothing services.
                 Assert.That(installButton.Enabled.Value, Is.False);
             }
+        }
+
+        /// <summary>
+        /// Backlog 353: a venv whose setup never completed offers Repair, not Install, Update or
+        /// Reinstall, whatever the version comparison says.
+        /// </summary>
+        [Test]
+        public void TheButtonOffersRepairForAnIncompleteInstall()
+        {
+            Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(new FakeAlignerManager { NeedsRepair = true }),
+                Is.EqualTo("Repair local auto-aligner"));
+            Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(new FakeAlignerManager()),
+                Is.EqualTo("Install local auto-aligner (~2 GB)"));
+            Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(new FakeAlignerManager { IsInstalled = true }),
+                Is.EqualTo("Reinstall local auto-aligner"));
+        }
+
+        private class FakeAlignerManager : ILocalAlignerManager
+        {
+            public bool IsInstalled { get; init; }
+            public bool NeedsRepair { get; init; }
+            public string? InstalledDevice => null;
+            public bool GpuDetected => false;
+            public string? InstalledVersion => null;
+            public string? ShippedVersion => null;
+            public bool UpdateAvailable => false;
+
+            public Task<LyricImportResult> InstallAsync(Action<string> progress, CancellationToken token) => throw new NotSupportedException();
         }
     }
 }

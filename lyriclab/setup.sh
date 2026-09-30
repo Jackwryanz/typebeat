@@ -17,11 +17,22 @@
 # ffmpeg: align_lyrics.py shells out to an `ffmpeg` on PATH. The imageio-ffmpeg wheel's
 # bundled static build is linked into the venv's bin dir; the game prepends that dir to
 # PATH when it runs the aligner.
+#
+# Setup sentinel (backlog 353): the LAST act of a fully successful run writes
+# .venv/.typebeat-setup-ok (the pinned Python and torch versions, the device and a UTC timestamp).
+# The game treats the aligner as installed only when that file exists beside the venv's python, so
+# a run that died or was killed part way reads as "needs repair" instead of "installed". Nothing
+# may be added after the sentinel write except the final message; tests/test_setup_sh.sh pins the
+# ordering. A .venv WITHOUT the sentinel is treated as incomplete and rebuilt from scratch (the game
+# probes such a venv's imports first and writes the sentinel itself when they load).
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 UV_VERSION='0.5.14'
+PYTHON_VERSION='3.11'
+TORCH_VERSION='2.5.1'
+SENTINEL='.venv/.typebeat-setup-ok'
 
 DEVICE='cpu'
 PLAN_ONLY=0
@@ -40,17 +51,22 @@ esac
 
 PY=".venv/bin/python"
 
-# One plain line on stderr, drop any half-built venv so the next attempt starts clean (the game
-# treats an existing .venv/bin/python as "installed" and never re-runs this script), exit 1.
+# One plain line on stderr, drop any half-built venv so the next attempt starts clean (the sentinel
+# is inside .venv, so it can never outlive a failed run), exit 1.
 fail() {
     echo "setup failed: $1" >&2
     [ "$PLAN_ONLY" -eq 1 ] || rm -rf .venv
     exit 1
 }
 
-if [ "$PLAN_ONLY" -eq 0 ] && [ -x "$PY" ]; then
+if [ "$PLAN_ONLY" -eq 0 ] && [ -f "$SENTINEL" ]; then
     echo 'lyriclab environment already present'
     exit 0
+fi
+
+if [ "$PLAN_ONLY" -eq 0 ] && [ -e .venv ]; then
+    echo 'removing an incomplete environment left by an earlier setup...'
+    rm -rf .venv || fail 'the incomplete environment could not be removed'
 fi
 
 UV=''
@@ -90,9 +106,9 @@ if [ -z "$UV" ]; then
 fi
 
 echo 'creating venv with uv...'
-"$UV" venv .venv --python 3.11 || fail 'creating the Python 3.11 environment failed'
+"$UV" venv .venv --python "$PYTHON_VERSION" || fail "creating the Python $PYTHON_VERSION environment failed"
 echo "installing torch ($DEVICE), this is the big download..."
-"$UV" pip install --python "$PY" --index-url "$TORCH_INDEX" torch==2.5.1 torchaudio==2.5.1 || fail 'installing torch failed'
+"$UV" pip install --python "$PY" --index-url "$TORCH_INDEX" "torch==$TORCH_VERSION" "torchaudio==$TORCH_VERSION" || fail 'installing torch failed'
 echo 'installing aligner dependencies...'
 "$UV" pip install --python "$PY" demucs==4.0.1 soundfile pyphen num2words tqdm imageio-ffmpeg || fail 'installing the aligner dependencies failed'
 
@@ -101,4 +117,9 @@ echo 'installing aligner dependencies...'
 echo 'provisioning ffmpeg into the venv...'
 "$PY" -c "import imageio_ffmpeg, os; src = imageio_ffmpeg.get_ffmpeg_exe(); dst = '.venv/bin/ffmpeg'; os.path.lexists(dst) and os.remove(dst); os.symlink(src, dst)" || fail 'provisioning ffmpeg failed'
 
+echo 'verifying the installed packages import...'
+"$PY" -c "import torch, torchaudio, demucs, soundfile, pyphen, num2words" || fail 'the installed packages do not import'
+
+# LAST act, after every step above checked out: the sentinel the game reads as "installed".
+printf 'python=%s\ntorch=%s\ndevice=%s\ncreated=%s\n' "$PYTHON_VERSION" "$TORCH_VERSION" "$DEVICE" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SENTINEL" || fail 'writing the setup sentinel failed'
 echo 'lyriclab environment ready'

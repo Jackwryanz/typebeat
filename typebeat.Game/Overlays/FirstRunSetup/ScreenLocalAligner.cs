@@ -79,6 +79,14 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                 return;
             }
 
+            // A venv whose setup never completed: the same button repairs it (see InstallAsync).
+            if (alignerManager.NeedsRepair)
+            {
+                statusClaimed = true;
+                statusText.Text = "An earlier install of the local auto-aligner did not finish. Press the button to repair it: a working environment is kept (seconds), a broken one is downloaded again.";
+                return;
+            }
+
             // GPU probe spawns a process; do it off the load path and annotate the pitch once known.
             var manager = alignerManager;
             Task.Run(() =>

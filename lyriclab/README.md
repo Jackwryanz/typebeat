@@ -192,6 +192,12 @@ uv pip install --python .venv\Scripts\python.exe demucs==4.0.1 soundfile pyphen 
 which breaks Demucs checkpoint loading. Python 3.11 pinned for wheel
 coverage.)
 
+`setup.ps1` / `setup.sh` do the same and, as their last step, write
+`.venv/.typebeat-setup-ok`. The game treats the aligner as installed only when
+that sentinel exists; a venv built by hand without it shows as "Repair" in the
+game's settings, and Repair keeps it (writing the sentinel) if its packages
+import, or rebuilds it if they do not.
+
 Models cache in `%USERPROFILE%\.cache\torch\hub\checkpoints` (~1.3 GB total:
 MMS_FA aligner + htdemucs).
 

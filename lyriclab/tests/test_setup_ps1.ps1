@@ -4,7 +4,8 @@
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\test_setup_ps1.ps1
 #
 # Exit code 0 when every case passes. Nothing here downloads or installs anything: setup.ps1 runs
-# with -PlanOnly from a scratch copy, so it only reports which uv it would use.
+# from scratch copies, either with -PlanOnly (it only reports which uv it would use) or, for the
+# setup-sentinel cases (backlog 353), in full against a fake uv.cmd that builds a fake venv.
 #
 # Every child runs the way the game runs setup.ps1 (powershell.exe -File with stdout and stderr
 # redirected) with a PATH holding only System32 plus a fake dir whose py.cmd / python.cmd write
@@ -28,7 +29,7 @@ foreach ($name in 'py.cmd', 'python.cmd') {
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $basePath = "$fake;$env:SystemRoot\System32;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
 
-function Invoke-Child([string]$script, [string]$extraArgs = '', [string]$pathPrefix = '') {
+function Invoke-Child([string]$script, [string]$extraArgs = '', [string]$pathPrefix = '', [hashtable]$extraEnv = @{}) {
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName = $powershell
     $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$script`" $extraArgs"
@@ -37,6 +38,7 @@ function Invoke-Child([string]$script, [string]$extraArgs = '', [string]$pathPre
     $psi.RedirectStandardError = $true
     $psi.CreateNoWindow = $true
     $psi.EnvironmentVariables['PATH'] = if ($pathPrefix) { "$pathPrefix;$basePath" } else { $basePath }
+    foreach ($key in $extraEnv.Keys) { $psi.EnvironmentVariables[$key] = $extraEnv[$key] }
     $p = [Diagnostics.Process]::Start($psi)
     $out = $p.StandardOutput.ReadToEndAsync()
     $err = $p.StandardError.ReadToEndAsync()
@@ -110,6 +112,96 @@ Write-Output "probe survived LASTEXITCODE=$LASTEXITCODE"
     $bad = Get-Content $setup | Where-Object { $_ -notmatch '^\s*#' } |
         Where-Object { $_ -match '2>\s*(\$null|&1)' -or $_ -match '(^|[\s&])py(\.exe)?\s+-' }
     Check 'setup.ps1: no py launcher call and no redirected native stderr' (-not $bad) ($bad -join "`n")
+
+    # ---- Setup sentinel (backlog 353): full runs against a FAKE uv, nothing downloaded. ----
+    # uv.cmd answers 'venv' by creating .venv\Scripts\python.exe as a copy of doskey.exe (which
+    # exits 0 whatever it is given, so every python -c step "succeeds") or, with FAKE_PY_BROKEN,
+    # of where.exe (which exits 1, so the first python step fails the way a venv without torch
+    # does). 'pip' succeeds unless FAKE_UV_FAIL_TORCH is set and the call installs torch.
+    $fakeUv = Join-Path $work 'fakeuv'
+    New-Item -ItemType Directory -Force -Path $fakeUv | Out-Null
+    [IO.File]::WriteAllText((Join-Path $fakeUv 'uv.cmd'), (@(
+        '@echo off'
+        'if /i "%~1"=="venv" goto venv'
+        'if /i "%~1"=="pip" goto pip'
+        'exit /b 0'
+        ':venv'
+        'if not exist .venv\Scripts mkdir .venv\Scripts'
+        'set "FAKE_PY=%SystemRoot%\System32\doskey.exe"'
+        'if defined FAKE_PY_BROKEN set "FAKE_PY=%SystemRoot%\System32\where.exe"'
+        'copy /y "%FAKE_PY%" .venv\Scripts\python.exe >nul'
+        'exit /b %errorlevel%'
+        ':pip'
+        'if not defined FAKE_UV_FAIL_TORCH exit /b 0'
+        'echo %* | findstr /c:"torch==" >nul'
+        'if errorlevel 1 exit /b 0'
+        'exit /b 1'
+    ) -join "`r`n") + "`r`n")
+
+    function New-Lab([string]$name) {
+        $dir = Join-Path $work $name
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        Copy-Item $setup (Join-Path $dir 'setup.ps1')
+        $dir
+    }
+
+    $sentinelName = '.venv\.typebeat-setup-ok'
+
+    # A clean, fully successful run writes the sentinel, with the pinned versions and the device.
+    $l = New-Lab 'run-ok'
+    $r = Invoke-Child (Join-Path $l 'setup.ps1') '' $fakeUv
+    $sentinelPath = Join-Path $l $sentinelName
+    $content = if (Test-Path $sentinelPath) { [IO.File]::ReadAllText($sentinelPath) } else { '' }
+    Check 'sentinel: a successful setup writes it' (
+        $r.ExitCode -eq 0 -and $r.Output -match 'lyriclab environment ready' -and
+        (Test-Path (Join-Path $l '.venv\Scripts\python.exe')) -and
+        $content -match '(?m)^python=3\.11$' -and $content -match '(?m)^torch=2\.5\.1$' -and
+        $content -match '(?m)^device=cpu$' -and $content -match '(?m)^created=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$') ($r.Output + "`nsentinel: " + $content)
+
+    # With the sentinel in place a re-run is a no-op.
+    $r = Invoke-Child (Join-Path $l 'setup.ps1') '' $fakeUv
+    Check 'sentinel: present -> already present, nothing rebuilt' (
+        $r.ExitCode -eq 0 -and $r.Output -match 'already present' -and $r.Output -notmatch 'creating venv') $r.Output
+
+    # A venv with python.exe but NO sentinel (a pre-349 half install) is rebuilt, not trusted.
+    $l = New-Lab 'run-stale'
+    New-Item -ItemType Directory -Force -Path (Join-Path $l '.venv\Scripts') | Out-Null
+    [IO.File]::WriteAllText((Join-Path $l '.venv\Scripts\python.exe'), 'stale')
+    [IO.File]::WriteAllText((Join-Path $l '.venv\canary.txt'), 'from the broken install')
+    $r = Invoke-Child (Join-Path $l 'setup.ps1') '' $fakeUv
+    Check 'sentinel: a sentinel-less venv is removed and rebuilt' (
+        $r.ExitCode -eq 0 -and $r.Output -match 'removing an incomplete environment' -and
+        -not (Test-Path (Join-Path $l '.venv\canary.txt')) -and (Test-Path (Join-Path $l $sentinelName))) $r.Output
+
+    # A failed torch install: exit 1, one plain line, no venv and so no sentinel.
+    $l = New-Lab 'run-torch-fails'
+    $r = Invoke-Child (Join-Path $l 'setup.ps1') '' $fakeUv @{ FAKE_UV_FAIL_TORCH = '1' }
+    Check 'sentinel: absent, and the venv removed, when torch fails to install' (
+        $r.ExitCode -eq 1 -and $r.Output -match 'setup failed: installing torch failed' -and
+        -not (Test-Path (Join-Path $l '.venv'))) $r.Output
+
+    # A venv whose python cannot import anything: same outcome.
+    $l = New-Lab 'run-python-broken'
+    $r = Invoke-Child (Join-Path $l 'setup.ps1') '' $fakeUv @{ FAKE_PY_BROKEN = '1' }
+    Check 'sentinel: absent, and the venv removed, when the venv python fails' (
+        $r.ExitCode -eq 1 -and $r.Output -match 'setup failed:' -and
+        -not (Test-Path (Join-Path $l '.venv'))) $r.Output
+
+    # The failure cleanup removes the sentinel with the venv, so the runs above cannot see WHERE in
+    # the script it is written; what the ordering protects against is a run KILLED part way (the
+    # game kills the process tree on cancel, and no cleanup runs). So pin it statically: the
+    # sentinel lives inside .venv, and it is written after the last native command, with only the
+    # final message after it.
+    $code = @(Get-Content $setup | Where-Object { $_ -notmatch '^\s*#' -and $_.Trim() -ne '' })
+    $write = -1; $lastNative = -1
+    for ($i = 0; $i -lt $code.Count; $i++) {
+        if ($code[$i] -match 'WriteAllText\(.*\$sentinel') { $write = $i }
+        if ($code[$i] -match 'Invoke-Native\s|&\s*\$(py|uvExe)\b') { $lastNative = $i }
+    }
+    $after = @(if ($write -ge 0) { $code[($write + 1)..($code.Count - 1)] | Where-Object { $_.Trim() -notmatch '^(\}|\} catch \{|Stop-Setup \$_\.Exception\.Message)$' } })
+    Check 'sentinel: inside .venv, written after the last native command, then only the final message' (
+        ($code -match "^\`$sentinel = '\.venv\\") -and $write -gt $lastNative -and $lastNative -ge 0 -and
+        $after.Count -eq 1 -and $after[0] -match "Write-Output 'lyriclab environment ready'") ("write=$write lastNative=$lastNative after:`n" + ($after -join "`n"))
 } finally {
     Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
 }

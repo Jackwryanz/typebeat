@@ -19,6 +19,16 @@
 # $LASTEXITCODE; if a probe is ever needed again, run it through 'cmd /c "... >nul 2>nul"'.
 # tests\test_setup_ps1.ps1 pins this with a fake py that writes to stderr and exits 103.
 #
+# Setup sentinel (backlog 353): the LAST act of a fully successful run writes
+# .venv\.typebeat-setup-ok (the pinned Python and torch versions, the device and a UTC timestamp).
+# The game treats the aligner as installed only when that file exists beside the venv's python, so
+# a run that died or was killed part way (before 349 a failed torch install could still leave a
+# python.exe behind) reads as "needs repair" instead of "installed". Nothing may be added after the
+# sentinel write except the final message; tests\test_setup_ps1.ps1 pins the ordering. A .venv
+# WITHOUT the sentinel is treated as incomplete and rebuilt from scratch. (The game probes such a
+# venv's imports first and writes the sentinel itself when they load, so it only hands this script
+# a venv that is actually broken; a by-hand run simply rebuilds.)
+#
 # -Device cpu  (default): CPU-only torch wheels (~200 MB download).
 # -Device cuda: CUDA 12.1 torch wheels (~2.5 GB download) - alignment runs on an NVIDIA GPU
 #               (align_lyrics.py --device cuda). Requires a reasonably recent NVIDIA driver.
@@ -42,9 +52,12 @@ Set-Location $PSScriptRoot
 
 $uvVersion = '0.5.14'
 $uvUrl = "https://github.com/astral-sh/uv/releases/download/$uvVersion/uv-x86_64-pc-windows-msvc.zip"
+$pythonVersion = '3.11'
+$torchVersion = '2.5.1'
+$sentinel = '.venv\.typebeat-setup-ok'
 
-# One plain line on stderr, drop any half-built venv so the next attempt starts clean (the game
-# treats an existing .venv\Scripts\python.exe as "installed" and never re-runs this script), exit 1.
+# One plain line on stderr, drop any half-built venv so the next attempt starts clean (the sentinel
+# is inside .venv, so it can never outlive a failed run), exit 1.
 function Stop-Setup([string]$message) {
     [Console]::Error.WriteLine("setup failed: $message")
     if (-not $PlanOnly -and (Test-Path '.venv')) {
@@ -61,9 +74,14 @@ function Invoke-Native([string]$what, [scriptblock]$command) {
 }
 
 try {
-    if (-not $PlanOnly -and (Test-Path '.venv\Scripts\python.exe')) {
+    if (-not $PlanOnly -and (Test-Path $sentinel)) {
         Write-Output 'lyriclab environment already present'
         exit 0
+    }
+
+    if (-not $PlanOnly -and (Test-Path '.venv')) {
+        Write-Output 'removing an incomplete environment left by an earlier setup...'
+        Remove-Item '.venv' -Recurse -Force
     }
 
     # Prefer an existing uv; otherwise the pinned local copy; otherwise download that copy.
@@ -97,9 +115,9 @@ try {
     $py = '.venv\Scripts\python.exe'
 
     Write-Output 'creating venv with uv...'
-    Invoke-Native 'creating the Python 3.11 environment failed' { & $uvExe venv .venv --python 3.11 }
+    Invoke-Native "creating the Python $pythonVersion environment failed" { & $uvExe venv .venv --python $pythonVersion }
     Write-Output "installing torch ($Device) - this is the big download..."
-    Invoke-Native 'installing torch failed' { & $uvExe pip install --python $py --index-url $torchIndex torch==2.5.1 torchaudio==2.5.1 }
+    Invoke-Native 'installing torch failed' { & $uvExe pip install --python $py --index-url $torchIndex "torch==$torchVersion" "torchaudio==$torchVersion" }
     Write-Output 'installing aligner dependencies...'
     Invoke-Native 'installing the aligner dependencies failed' { & $uvExe pip install --python $py demucs==4.0.1 soundfile pyphen num2words tqdm imageio-ffmpeg }
 
@@ -107,6 +125,9 @@ try {
 
     Write-Output 'provisioning ffmpeg into the venv...'
     Invoke-Native 'provisioning ffmpeg failed' { & $py -c "import imageio_ffmpeg, shutil; shutil.copy(imageio_ffmpeg.get_ffmpeg_exe(), r'.venv\Scripts\ffmpeg.exe')" }
+
+    Write-Output 'verifying the installed packages import...'
+    Invoke-Native 'the installed packages do not import' { & $py -c "import torch, torchaudio, demucs, soundfile, pyphen, num2words" }
 
     if ($Device -eq 'cuda') {
         Write-Output 'verifying CUDA is usable by torch...'
@@ -116,6 +137,9 @@ try {
         }
     }
 
+    # LAST act, after every step above checked out: the sentinel the game reads as "installed".
+    $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    [IO.File]::WriteAllText((Join-Path $PSScriptRoot $sentinel), "python=$pythonVersion`ntorch=$torchVersion`ndevice=$Device`ncreated=$stamp`n")
     Write-Output 'lyriclab environment ready'
 } catch {
     Stop-Setup $_.Exception.Message

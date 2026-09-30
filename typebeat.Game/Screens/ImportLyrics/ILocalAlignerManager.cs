@@ -18,8 +18,19 @@ namespace typebeat.Game.Screens.ImportLyrics
     /// </summary>
     public interface ILocalAlignerManager
     {
-        /// <summary>Whether a ready-to-run local aligner environment exists (venv built).</summary>
+        /// <summary>
+        /// Whether a ready-to-run local aligner environment exists: the venv built AND its setup
+        /// completed (the setup sentinel is present).
+        /// </summary>
         bool IsInstalled { get; }
+
+        /// <summary>
+        /// A venv exists but no setup ever completed on it: an install that died part way, or one
+        /// made before completed setups were recorded. <see cref="InstallAsync"/> REPAIRS it: the
+        /// venv is kept when its packages import, and deleted and rebuilt when they do not.
+        /// Never true together with <see cref="IsInstalled"/>.
+        /// </summary>
+        bool NeedsRepair { get; }
 
         /// <summary>"cuda" or "cpu" for an installed environment; null when not installed.</summary>
         string? InstalledDevice { get; }
@@ -48,7 +59,7 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// when <see cref="GpuDetected"/>), and points the importer at it. Progress lines stream on
         /// a background thread; marshal to the update thread yourself. Safe to call when already
         /// installed: the scripts are replaced by the shipped copy and the aligner's caches are
-        /// cleared, while the environment is kept.
+        /// cleared, while the environment is kept. When <see cref="NeedsRepair"/>, this is the repair.
         /// </summary>
         Task<LyricImportResult> InstallAsync(Action<string> progress, CancellationToken token);
     }
