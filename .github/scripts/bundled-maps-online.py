@@ -46,7 +46,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 DEFAULT_MANIFEST = os.path.join(REPO_ROOT, "typebeat.Desktop", "bundled-maps.manifest")
 DEFAULT_BUNDLED = os.path.join(REPO_ROOT, "typebeat.Desktop", "Bundled")
-DEFAULT_API = os.environ.get("BUNDLED_MAPS_API_BASE", "https://typebeat.mingda.sh")
+DEFAULT_API = os.environ.get("BUNDLED_MAPS_API_BASE", "https://typebeat.sh")
 
 MANIFEST_LINE = re.compile(r"^([0-9a-f]{64})\s+(\d+)\s+(.+?)\s*$")
 
