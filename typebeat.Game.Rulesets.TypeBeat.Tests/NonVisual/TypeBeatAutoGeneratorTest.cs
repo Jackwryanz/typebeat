@@ -308,16 +308,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // 247's first chars), exactly as createEngine stamps them; the classic arm is inert to
             // both, so it needs neither.
             // Backlog 363's grouping rides along for every stack, exactly as createEngine stamps it.
-            double[] span = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, authoredSyllablesOnly: true).Generate());
-            double[] classic = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: false, authoredSyllablesOnly: true).Generate());
-            double[] literateSpan = frameTimes(new TypeBeatAutoGenerator(map, literate: true, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, authoredSyllablesOnly: true).Generate());
-            double[] easySpan = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, wordShelter: true, authoredSyllablesOnly: true).Generate());
+            double[] span = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, authoredSyllablesOnly: true, alignSubdivisionTargets: true).Generate());
+            double[] classic = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: false, authoredSyllablesOnly: true, alignSubdivisionTargets: true).Generate());
+            double[] literateSpan = frameTimes(new TypeBeatAutoGenerator(map, literate: true, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, authoredSyllablesOnly: true, alignSubdivisionTargets: true).Generate());
+            double[] easySpan = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, wordShelter: true, authoredSyllablesOnly: true, alignSubdivisionTargets: true).Generate());
 
-            Assert.That(span, Is.Not.EqualTo(classic), "the fixture must distinguish the two eras");
-            // Easy's shelter is the third arm, and the fixture distinguishes it too: this map's
-            // subtimed words have cells whose flat-ramp targets sit outside their own syllable, so
-            // clamping into the WORD moves presses the syllable clamp did not.
-            Assert.That(easySpan, Is.Not.EqualTo(span), "the fixture must distinguish the shelter too");
+            Assert.That(span, Is.EqualTo(classic), "aligned targets already lie in their syllable spans");
+            Assert.That(classic, Is.Not.EqualTo(frameTimes(new TypeBeatAutoGenerator(map).Generate())), "the fixture distinguishes the legacy targets");
+            Assert.That(easySpan, Is.EqualTo(span), "aligned targets also lie in the word shelter");
 
             var mod = new TypeBeatModAutoplay();
 
@@ -327,8 +325,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModLiterate() }).Replay), Is.EqualTo(literateSpan), "Literate is still carried through");
 
             var frames = mod.CreateReplayData(map, Array.Empty<Mod>()).Replay.Frames.Cast<TypeBeatReplayFrame>().ToList();
-            Assert.That(frames[0].IsConfigExtended && frames[0].AuthoredSyllablesOnly, Is.True, "the era header opens the frames");
-            Assert.That(frames[^2].IsConfigExtended && frames[^2].AuthoredSyllablesOnly, Is.True, "and sits again ahead of the last press");
+            Assert.That(frames[0].IsConfigExtended && frames[0].AuthoredSyllablesOnly && frames[0].AlignSubdivisionTargets, Is.True, "the era header opens the frames");
+            Assert.That(frames[^2].IsConfigExtended && frames[^2].AuthoredSyllablesOnly && frames[^2].AlignSubdivisionTargets, Is.True, "and sits again ahead of the last press");
             Assert.That(frames.Count(f => f.IsConfigExtended), Is.EqualTo(2));
         }
 

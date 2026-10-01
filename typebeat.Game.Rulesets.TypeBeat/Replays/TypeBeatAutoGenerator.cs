@@ -37,6 +37,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         private readonly bool firstCharTiming;
         private readonly bool wordShelter;
         private readonly bool authoredSyllablesOnly;
+        private readonly bool alignSubdivisionTargets;
 
         /// <param name="beatmap">The map to perfect.</param>
         /// <param name="literate">
@@ -84,8 +85,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// written: the first-word flags are the live engine's own (autoplay is built to match
         /// them), and a CONFIG frame would clobber them with values this class does not know.
         /// </param>
+        /// <param name="alignSubdivisionTargets">
+        /// Use the live editor-aligned character targets and carry that era in the extended header.
+        /// Defaults to legacy targets for existing direct callers.
+        /// </param>
         public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false, bool charTimedStretch = false, bool firstCharTiming = false, bool wordShelter = false,
-                                     bool authoredSyllablesOnly = false)
+                                     bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false)
             : base(beatmap)
         {
             this.literate = literate;
@@ -94,6 +99,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             this.firstCharTiming = firstCharTiming;
             this.wordShelter = wordShelter;
             this.authoredSyllablesOnly = authoredSyllablesOnly;
+            this.alignSubdivisionTargets = alignSubdivisionTargets;
         }
 
         protected override void GenerateFrames()
@@ -111,6 +117,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // A Polyglot play (backlog 331) is stamped on the line objects by the mod, so the frames
                 // follow the original-script cells the engine will judge.
                 var line = TypingLine.ForMods(lineObject.Line, literate, lineObject.Polyglot, lineObject.PolyglotLanguage);
+                line.SetAlignedSubdivisionTargets(alignSubdivisionTargets);
 
                 // The line is typeable in [ActivationTime, EndTime + SealGraceMs); keep a margin
                 // before the deadline so a boundary-pinned target is still pressed while typeable.
@@ -152,7 +159,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 }
             }
 
-            if (authoredSyllablesOnly && Frames.Count > 0)
+            if ((authoredSyllablesOnly || alignSubdivisionTargets) && Frames.Count > 0)
             {
                 // The era header (see the constructor), immediately ahead of the LAST press and at its
                 // time, and again ahead of the first. The first lands it before any keystroke a play
@@ -160,10 +167,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // every frame at or before the playhead before attaching: whenever any press survives
                 // that trim, so does this header, and the watch path primes from the first header it
                 // finds, so the surviving presses are judged on the grouping they were made for.
-                Frames.Insert(Frames.Count - 1, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[^1].Time, authoredSyllablesOnly: true));
+                Frames.Insert(Frames.Count - 1, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[^1].Time, authoredSyllablesOnly: authoredSyllablesOnly, alignSubdivisionTargets: alignSubdivisionTargets));
 
                 if (Frames.Count > 2)
-                    Frames.Insert(0, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[0].Time, authoredSyllablesOnly: true));
+                    Frames.Insert(0, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[0].Time, authoredSyllablesOnly: authoredSyllablesOnly, alignSubdivisionTargets: alignSubdivisionTargets));
             }
         }
 

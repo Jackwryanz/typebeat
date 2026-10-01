@@ -183,6 +183,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 engine.RushCapCostsAccuracy = frame.RushCapCostsAccuracy;
                 engine.InputEra2 = frame.InputEra2;
                 engine.AuthoredSyllablesOnly = frame.AuthoredSyllablesOnly;
+                engine.AlignSubdivisionTargets = frame.AlignSubdivisionTargets;
                 return;
             }
 
@@ -221,6 +222,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             engine.RushCapCostsAccuracy = false;
             engine.InputEra2 = false;
             engine.AuthoredSyllablesOnly = false;
+            engine.AlignSubdivisionTargets = false;
         }
 
         /// <summary>

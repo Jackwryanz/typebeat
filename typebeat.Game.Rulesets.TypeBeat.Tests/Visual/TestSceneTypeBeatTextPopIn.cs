@@ -38,10 +38,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void RestoreSettings() => AddStep("restore pop-in defaults", () =>
         {
             config.SetValue(TypeBeatRulesetSetting.TextPopIn, false);
+            config.SetValue(TypeBeatRulesetSetting.CaretSmoothing, TypeBeatRulesetConfigManager.DEFAULT_CARET_SMOOTHING_MS);
             config.SetValue(TypeBeatRulesetSetting.TextPopInAmount, TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT);
         });
 
-        private void load(string text, bool hardRock = false, bool splitStretch = false)
+        private void load(string text, bool hardRock = false, bool splitStretch = false, LyricLine? source = null)
         {
             AddStep("create lyrics with pop-in", () =>
             {
@@ -50,7 +51,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.SyllableBrightness, 50f);
                 var ruleset = new TypeBeatRuleset();
                 Mod[] mods = hardRock ? new Mod[] { new TypeBeatModHardRock() } : Array.Empty<Mod>();
-                var line = new LyricLine
+                var line = source ?? new LyricLine
                 {
                     RawText = text, StartTime = 0, EndTime = 6000, SingEndTime = 5000,
                     Units = new[]
@@ -67,7 +68,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 {
                     HitObjects = new List<Rulesets.Objects.HitObject>
                     {
-                        new TypeBeatHitObject { StartTime = 0, LineIndex = 0, Line = line, Granularity = TimingGranularity.Word },
+                        new TypeBeatHitObject { StartTime = line.StartTime, LineIndex = 0, Line = line, Granularity = TimingGranularity.Word },
                     },
                 };
                 beatmap.BeatmapInfo.Ruleset = ruleset.RulesetInfo;
@@ -131,6 +132,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("normal typed size restored", () => display.CellVisualScale(0) == 1);
             AddAssert("judgement stays Great", () => display.Line.Cells[0].State == CellState.Correct);
         }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void OverdoneCaretAndHighlightsFollowTheEditorSubdivisions(bool hardRock)
+        {
+            load("", hardRock, source: NonVisual.SubdivisionAlignmentTest.OverdoneLine());
+            AddStep("disable caret smoothing for exact boundary checks", () => config.SetValue(TypeBeatRulesetSetting.CaretSmoothing, 0f));
+            AddAssert("live timing uses editor cuts", () => engine.AlignSubdivisionTargets);
+            at("ver subdivision onset", () => 185008.333333);
+            AddUntilStep("caret reaches v at the editor boundary", () => caretAtCell(5));
+            at("done subdivision onset", () => 186008.333333);
+            AddUntilStep("caret reaches d at the editor boundary", () => caretAtCell(8));
+            at("done Great window opens", () => 186008.333333 - engine.Windows.GreatEarly);
+            AddUntilStep("d lights at its subdivision window", () => colourIs(8, TypeBeatStyle.SungCharForBrightness(50)));
+            AddAssert("held letters have not opened their own windows", () => colourIs(9, TypeBeatStyle.UntypedChar) && display.CellVisualScale(9) == LyricLineDisplay.TEXT_POP_IN_MIN_SCALE);
+            at("first held o Great window opens", () => 186008.333333 + 4625.0 / 13 - engine.Windows.GreatEarly);
+            AddUntilStep("held o lights and finishes pop-in at its corrected window", () => colourIs(9, TypeBeatStyle.SungCharForBrightness(50)) && display.CellVisualScale(9) == 1);
+            AddAssert("next held o remains grey", () => colourIs(10, TypeBeatStyle.UntypedChar));
+        }
+
+        private bool caretAtCell(int index) => Vector2.Distance(stage.SungCaretPosition,
+            display.ToSpaceOfOtherDrawable(display.SungPositionPoint(index), stage)) < 0.01;
 
         [TestCase(false, "meeeeeee", false)]
         [TestCase(false, "heyyyyy", true)]

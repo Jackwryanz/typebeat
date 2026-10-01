@@ -1243,6 +1243,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool RushCapExempt { get; set; }
 
+        private bool alignSubdivisionTargets;
+
+        /// <summary>Use the editor's effective character cuts for subdivided words. Recorded as a timing era.</summary>
+        public bool AlignSubdivisionTargets
+        {
+            get => alignSubdivisionTargets;
+            set
+            {
+                if (alignSubdivisionTargets == value)
+                    return;
+                alignSubdivisionTargets = value;
+                foreach (var line in lines)
+                    line.SetAlignedSubdivisionTargets(value);
+            }
+        }
+
         /// <summary>
         /// THE RUSH CAP COSTS ACCURACY, NOT COMBO (backlog 347). With this set, a press that leaves
         /// the caret more than <see cref="RushCap"/> countable chars past the playhead credits combo

@@ -172,6 +172,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// that already exists; the engine flag selects which one judgement, the lyric display and the
     /// pace bands read. Applied like bits 0 and 1.</para>
     ///
+    /// <para><b>Second word, bit 3 (value 8): <see cref="AlignSubdivisionTargets"/>.</b>
+    /// Live character targets use the same effective character cuts as the editor's timed
+    /// subdivisions, including derived cuts. Clear retains the legacy index-even spread when
+    /// explicit character cuts are absent, preserving existing replay judgements and caret timing.
+    /// Applied like the other extended flags, before a keystroke or playback tick.</para>
+    ///
     /// <para><b>The WALL-CLOCK axis (bit 9, backlog 256).</b> Ordinarily a frame's time is a lyric
     /// time and can be fed to the engine as it stands. Under the Puppeteer mod the song's position
     /// is a FUNCTION of the typing, so the lyric time of a keystroke is an OUTPUT of the model
@@ -520,6 +526,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool AuthoredSyllablesOnly;
 
         /// <summary>
+        /// Character targets use the editor's effective subdivision cuts, including derived cuts.
+        /// Bit 3 of the extended flags word; absent on existing replays, which retain their targets.
+        /// </summary>
+        public bool AlignSubdivisionTargets;
+
+        /// <summary>
         /// The ANCHOR carried by a bit-9 CONFIG frame: the track position the tape was started at,
         /// which is also the origin of the wall axis every other frame in the run is stamped on. It
         /// is simply this frame's own <see cref="ReplayFrame.Time"/>, named here because that is a
@@ -601,11 +613,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// Parameters are append-only and named, as <see cref="CreateConfigFrame"/>'s are; each one
         /// defaults to clear, which is what a replay with no extended frame decodes to.
         /// </summary>
-        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
+        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
         {
             RushCapCostsAccuracy = rushCapCostsAccuracy,
             InputEra2 = inputEra2,
             AuthoredSyllablesOnly = authoredSyllablesOnly,
+            AlignSubdivisionTargets = alignSubdivisionTargets,
         };
 
         /// <summary>Bit 0 of the EXTENDED CONFIG frame's (second) flags word: an over-cap press was
@@ -620,6 +633,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <summary>Bit 2 of the EXTENDED CONFIG frame's (second) flags word: only authored syllable
         /// boundaries split a word (see <see cref="AuthoredSyllablesOnly"/>, backlog 363).</summary>
         private const int ext_flag_authored_syllables_only = 4;
+
+        /// <summary>Bit 3: per-character timing follows the editor's effective subdivision cuts.</summary>
+        private const int ext_flag_align_subdivision_targets = 8;
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
         private const int flag_allow_wrong_input = 1;
@@ -707,6 +723,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 RushCapCostsAccuracy = (flags & ext_flag_rush_cap_costs_accuracy) != 0;
                 InputEra2 = (flags & ext_flag_input_era_2) != 0;
                 AuthoredSyllablesOnly = (flags & ext_flag_authored_syllables_only) != 0;
+                AlignSubdivisionTargets = (flags & ext_flag_align_subdivision_targets) != 0;
                 return;
             }
 
@@ -735,7 +752,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         private int extendedConfigFlags() =>
             (RushCapCostsAccuracy ? ext_flag_rush_cap_costs_accuracy : 0)
             | (InputEra2 ? ext_flag_input_era_2 : 0)
-            | (AuthoredSyllablesOnly ? ext_flag_authored_syllables_only : 0);
+            | (AuthoredSyllablesOnly ? ext_flag_authored_syllables_only : 0)
+            | (AlignSubdivisionTargets ? ext_flag_align_subdivision_targets : 0);
 
         private int configFlags() =>
             (AllowWrongInput ? flag_allow_wrong_input : 0)

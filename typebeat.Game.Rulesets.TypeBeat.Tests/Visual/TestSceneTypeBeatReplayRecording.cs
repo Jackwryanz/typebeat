@@ -227,6 +227,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("config frame leads and captures allow-wrong-input", () =>
                 frames[0].IsConfig && frames[0].AllowWrongInput == playfield.Engine.AllowWrongInput);
 
+            AddAssert("extended header records editor-aligned targets", () =>
+                frames[1].IsConfigExtended && frames[1].AlignSubdivisionTargets && playfield.Engine.AlignSubdivisionTargets);
+
             AddAssert("times are integral and monotonic", () =>
                 frames.All(f => f.Time == Math.Round(f.Time))
                 && frames.Zip(frames.Skip(1)).All(pair => pair.First.Time <= pair.Second.Time));
