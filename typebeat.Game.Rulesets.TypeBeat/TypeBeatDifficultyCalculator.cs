@@ -74,8 +74,17 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// doing the most work. The envelope model's mirror of the same dial
         /// (<c>LyricDifficulty.MinimumWindowChars</c>) moves with it, which moves the song select
         /// Target WPM figure but no rating.</para>
+        ///
+        /// <para>v5 (2026-10-01, backlog 363): a word the mapper did not subdivide is ONE judgement
+        /// segment over its unit, because the engine now plays it as one syllable group; the rating
+        /// used to cut it at a vowel-run count standing in for the gameplay-time syllabifier
+        /// (<c>LyricDifficulty.NaturalSyllables</c>, mirrored on the server, whose
+        /// <c>LyricPace.VERSION</c> moves with it). Those natural segments also placed the point
+        /// targets on every arm but Easy, so every map with an unsubdivided polysyllabic word moves;
+        /// the bundled fixtures as imported by at most 0.0023 stars, a map nobody subdivided by up to
+        /// about 0.1.</para>
         /// </summary>
-        public override int Version => 4;
+        public override int Version => 5;
 
         protected override DifficultyAttributes CreateDifficultyAttributes(IBeatmap beatmap, Mod[] mods, Skill[] skills)
         {

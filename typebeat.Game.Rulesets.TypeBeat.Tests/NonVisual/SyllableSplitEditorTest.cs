@@ -113,8 +113,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableSplits, Is.Empty);
         }
 
+        /// <summary>
+        /// CHOICE C (backlog 363): a word that already CARRIES a split keeps it explicit, even when a
+        /// commit lands it exactly on the derived cut. Only a word whose split was derived until now
+        /// folds a derived-equal pipe back to derived (see <see cref="CommittingTheDisplayedTextChangesNothing"/>).
+        /// </summary>
         [Test]
-        public void MovingAPipeBackOntoTheDerivedSplitStaysDerived()
+        public void MovingAPipeBackOntoTheDerivedSplitKeepsTheCarriedSplitExplicit()
         {
             var beatmap = createBeatmap();
 
@@ -122,7 +127,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 3 }));
 
             Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, lineAt(beatmap, 0), "ap|ple orange"), Is.True);
-            Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableSplits, Is.Empty, "back on the derived cut, so nothing is stored");
+            Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 2 }),
+                "the word carried a split, so the derived-equal cut is stored rather than folded away");
+        }
+
+        /// <summary>
+        /// THE CANONICALISER PIN (backlog 363, CHOICE C). The import pass writes a word's natural
+        /// split EXPLICITLY ("apple" over [1000, 1400] as ap|ple with its boundary at the cut cell's
+        /// flat-ramp target, 1160), and that split is what keeps the word's characters on their own
+        /// syllables. A line-box commit re-runs the pipe matrix for EVERY subdivided word of the line,
+        /// so editing word B must leave imported word A's split_chars alone, and so must committing
+        /// the box unchanged, splitting the line elsewhere or nudging another word's split.
+        /// </summary>
+        [Test]
+        public void EditingAnotherWordKeepsAnImportedWordsSplit()
+        {
+            var beatmap = createBeatmap();
+            var imported = ImportSyllables.Apply(newUnit("apple", 1000, 1400));
+
+            Assert.That(imported.SyllableSplits, Is.EqualTo(new[] { 2 }), "the fixture is a carried split equal to the derived one");
+            Assert.That(SyllableSegments.Derived("apple", 2), Is.EqualTo(new[] { 2 }));
+
+            var hit = lineAt(beatmap, 0);
+            hit.Line = new LyricLine
+            {
+                RawText = hit.Line.RawText,
+                StartTime = hit.Line.StartTime,
+                EndTime = hit.Line.EndTime,
+                SingEndTime = hit.Line.SingEndTime,
+                Units = new[] { imported, hit.Line.Units[1] },
+            };
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, lineAt(beatmap, 0), TypeBeatEditorOperations.PipeDisplayText(lineAt(beatmap, 0).Line)), Is.True);
+            Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 2 }), "an unchanged commit");
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, lineAt(beatmap, 0), "ap|ple oran|ge"), Is.True);
+            Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 2 }), "editing word B");
+            Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableBoundaries, Is.EqualTo(imported.SyllableBoundaries));
+
+            TypeBeatEditorOperations.SetSyllableSplit(beatmap, lineAt(beatmap, 0), 1, 0, 3);
+            Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 2 }), "moving word B's split");
+
+            TypeBeatEditorOperations.SetSyllableSplit(beatmap, lineAt(beatmap, 0), 0, 0, 2);
+            Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 2 }), "re-setting word A's own split onto itself");
         }
 
         [Test]

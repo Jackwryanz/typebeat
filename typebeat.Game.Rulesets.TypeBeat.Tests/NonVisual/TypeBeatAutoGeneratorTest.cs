@@ -307,10 +307,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // The live span stack carries both narrowings (backlog 209's stretch cells and backlog
             // 247's first chars), exactly as createEngine stamps them; the classic arm is inert to
             // both, so it needs neither.
-            double[] span = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true, charTimedStretch: true, firstCharTiming: true).Generate());
-            double[] classic = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: false).Generate());
-            double[] literateSpan = frameTimes(new TypeBeatAutoGenerator(map, literate: true, syllableTiming: true, charTimedStretch: true, firstCharTiming: true).Generate());
-            double[] easySpan = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, wordShelter: true).Generate());
+            // Backlog 363's grouping rides along for every stack, exactly as createEngine stamps it.
+            double[] span = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, authoredSyllablesOnly: true).Generate());
+            double[] classic = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: false, authoredSyllablesOnly: true).Generate());
+            double[] literateSpan = frameTimes(new TypeBeatAutoGenerator(map, literate: true, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, authoredSyllablesOnly: true).Generate());
+            double[] easySpan = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, wordShelter: true, authoredSyllablesOnly: true).Generate());
 
             Assert.That(span, Is.Not.EqualTo(classic), "the fixture must distinguish the two eras");
             // Easy's shelter is the third arm, and the fixture distinguishes it too: this map's
@@ -324,6 +325,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModEasy() }).Replay), Is.EqualTo(easySpan), "Easy carries its word shelter through");
             Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModHardRock() }).Replay), Is.EqualTo(classic), "Hard Rock reverts to point targets");
             Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModLiterate() }).Replay), Is.EqualTo(literateSpan), "Literate is still carried through");
+
+            var frames = mod.CreateReplayData(map, Array.Empty<Mod>()).Replay.Frames.Cast<TypeBeatReplayFrame>().ToList();
+            Assert.That(frames[0].IsConfigExtended && frames[0].AuthoredSyllablesOnly, Is.True, "the era header opens the frames");
+            Assert.That(frames[^2].IsConfigExtended && frames[^2].AuthoredSyllablesOnly, Is.True, "and sits again ahead of the last press");
+            Assert.That(frames.Count(f => f.IsConfigExtended), Is.EqualTo(2));
         }
 
         #endregion

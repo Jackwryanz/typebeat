@@ -127,9 +127,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             beatmap.BeatmapInfo.Metadata.Artist = "Test";
             beatmap.BeatmapInfo.Metadata.Title = "SyllableRender";
 
-            // One line, one subtimed word: "open door", cells o0 p1 e2 n3 _4 d5 o6 o7 r8. The
-            // syllabifier splits o|pen, and the even index spread over [3000, 9000] puts the chars
-            // at 3000/4500/6000/7500, so the groups (each ending where the next begins) are:
+            // One line, one subtimed word: "open door", cells o0 p1 e2 n3 _4 d5 o6 o7 r8. "open"
+            // carries an AUTHORED o|pen at 4500 (backlog 363: the live grouping splits no word the
+            // map does not), and its cut over [3000, 9000] puts the chars at 3000/4500/6000/7500,
+            // so the groups (each ending where the next begins) are:
             //   0: "o"    cells [0,1)  sung [3000, 4500]
             //   1: "pen"  cells [1,4)  sung [4500, 9000]
             //   2: "door" cells [5,9)  sung [9000, 40000]
@@ -143,7 +144,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 SingEndTime = 40000,
                 Units = new[]
                 {
-                    new TimedUnit { Text = "open", StartTime = 3000, EndTime = 9000 },
+                    new TimedUnit { Text = "open", StartTime = 3000, EndTime = 9000, SyllableBoundaries = new[] { 4500d }, SyllableSplits = new[] { 1 } },
                     new TimedUnit { Text = "door", StartTime = 9000, EndTime = 40000 },
                 },
             };

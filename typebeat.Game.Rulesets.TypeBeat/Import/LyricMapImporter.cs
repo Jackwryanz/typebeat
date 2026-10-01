@@ -803,7 +803,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     if (alignerResult.Success && timingJson != null)
                     {
                         progress("alignment complete");
-                        return (LyricImportResult.Ok(string.Empty), RomaniseLines(FlagFreestyleLines(timingJson), language));
+                        return (LyricImportResult.Ok(string.Empty), ImportSyllables.ApplyToTimingJson(RomaniseLines(FlagFreestyleLines(timingJson), language)));
                     }
 
                     if (token.IsCancellationRequested)
@@ -1046,7 +1046,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (lines.Count == 0)
                 return null;
 
-            return SynthesizedTimingJson.Write(lines, wordTiming: false, songEndMs: lines[^1].EndTime);
+            return SynthesizedTimingJson.Write(ImportSyllables.Apply(lines), wordTiming: false, songEndMs: lines[^1].EndTime);
         }
 
         /// <summary>The progress line an enhanced LRC import reports (backlog 356).</summary>
@@ -1078,7 +1078,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (lines.Count == 0)
                 return null;
 
-            return SynthesizedTimingJson.Write(lines, wordTiming: true, songEndMs: lines[^1].EndTime);
+            // The once-at-import syllabification (backlog 363) applies here exactly as it does to the
+            // plain LRC and TTML paths: a stamped word the author did not subdivide is cut by the
+            // Syllabifier so the mapper can see and edit the cut.
+            return SynthesizedTimingJson.Write(ImportSyllables.Apply(lines), wordTiming: true, songEndMs: lines[^1].EndTime);
         }
 
         /// <summary>
@@ -1104,7 +1107,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return null;
             }
 
-            return SynthesizedTimingJson.Write(lines, wordTiming: true, songEndMs: metadata.SongEndMs ?? lines[^1].SingEndTime);
+            return SynthesizedTimingJson.Write(ImportSyllables.Apply(lines), wordTiming: true, songEndMs: metadata.SongEndMs ?? lines[^1].SingEndTime);
         }
 
         /// <summary>

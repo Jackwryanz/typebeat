@@ -234,14 +234,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// Bit 1 of the second word decodes to <see cref="TypeBeatReplayFrame.InputEra2"/> and to nothing
-        /// else, bit 0 still to <see cref="TypeBeatReplayFrame.RushCapCostsAccuracy"/>, and neither is
-        /// read as a first-word bit. The PR fork's bare 0x01 marker (a zero word) decodes as the era off.
+        /// else, bit 0 still to <see cref="TypeBeatReplayFrame.RushCapCostsAccuracy"/>, bit 2 (backlog
+        /// 363) to <see cref="TypeBeatReplayFrame.AuthoredSyllablesOnly"/>, and none is read as a
+        /// first-word bit. The PR fork's bare 0x01 marker (a zero word) decodes as every era off.
         /// </summary>
-        [TestCase(0, false, false)]
-        [TestCase(1, true, false)]
-        [TestCase(2, false, true)]
-        [TestCase(3, true, true)]
-        public void TheSecondWordDecodesBitByBit(int word, bool rushCapCostsAccuracy, bool inputEra2)
+        [TestCase(0, false, false, false)]
+        [TestCase(1, true, false, false)]
+        [TestCase(2, false, true, false)]
+        [TestCase(3, true, true, false)]
+        [TestCase(4, false, false, true)]
+        [TestCase(5, true, false, true)]
+        [TestCase(6, false, true, true)]
+        [TestCase(7, true, true, true)]
+        public void TheSecondWordDecodesBitByBit(int word, bool rushCapCostsAccuracy, bool inputEra2, bool authoredSyllablesOnly)
         {
             var frame = new TypeBeatReplayFrame();
             frame.FromLegacy(new LegacyReplayFrame(1000, TypeBeatReplayFrame.CONFIG_EXTENDED, word, ReplayButtonState.None), new Beatmap());
@@ -249,9 +254,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(frame.IsConfigExtended);
             Assert.AreEqual(rushCapCostsAccuracy, frame.RushCapCostsAccuracy);
             Assert.AreEqual(inputEra2, frame.InputEra2);
-            Assert.IsFalse(frame.AllowWrongInput || frame.SpaceSkipsWord, "the second word is not read as first-word bits");
+            Assert.AreEqual(authoredSyllablesOnly, frame.AuthoredSyllablesOnly);
+            Assert.IsFalse(frame.AllowWrongInput || frame.SpaceSkipsWord || frame.SyllableTiming, "the second word is not read as first-word bits");
 
-            var encoded = TypeBeatReplayFrame.CreateExtendedConfigFrame(1000, rushCapCostsAccuracy, inputEra2).ToLegacy(new Beatmap());
+            var encoded = TypeBeatReplayFrame.CreateExtendedConfigFrame(1000, rushCapCostsAccuracy, inputEra2, authoredSyllablesOnly).ToLegacy(new Beatmap());
             Assert.AreEqual(word, (int)encoded.MouseY!.Value, "and it encodes back to the same word");
             Assert.AreEqual(TypeBeatReplayFrame.CONFIG_EXTENDED, (char)(int)encoded.MouseX!.Value);
         }

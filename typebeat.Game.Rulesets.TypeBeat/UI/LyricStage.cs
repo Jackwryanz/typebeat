@@ -198,6 +198,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>Whether the user asked for no sung playhead at all.</summary>
         private bool noPlayhead => sungCaretStyle.Value == CaretStyle.None;
 
+        /// <summary>The grouping-switch handler subscribed to the engine at load (see <c>load</c>), or null.</summary>
+        private Action? regroup;
+
         public LyricStage(TypingEngine engine)
         {
             this.engine = engine;
@@ -232,9 +235,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // Compare each word/subdivision with its predecessor, even across line breaks. The
             // checkbox only recolours the existing boxes; geometry and timing stay fixed.
+            //
+            // The bands are cut at the syllable marks of the grouping the engine judges on
+            // (backlog 363): the authored one live, the natural one while a stored replay that
+            // predates it plays back. A replay attaching flips that, and the handler below re-lays
+            // both the marks and the bands.
             var paceBands = UnderlinePace.BuildRelativeBands(lines,
                 config?.GetBindable<float>(TypeBeatRulesetSetting.PaceColourMaxChange).Value
-                ?? UnderlinePace.DEFAULT_MAX_CHANGE_PERCENT);
+                ?? UnderlinePace.DEFAULT_MAX_CHANGE_PERCENT, engine.AuthoredSyllablesOnly);
 
             // The gameplay typing font is an accessibility pick (OpenDyslexic / a system font) applied
             // only to the lyric stack. Resolved once here: an unset/unknown/failed font stays null so
@@ -270,6 +278,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Origin = Anchor.Centre,
                     Alpha = 0f,
                 };
+                d.SetGrouping(engine.GroupingOf(lines[i]));
                 displays[i] = d;
                 lineContainer.Add(d);
             }
@@ -285,11 +294,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             config?.BindWith(TypeBeatRulesetSetting.PaceColourMaxChange, paceColourMaxChange);
             paceColourMaxChange.BindValueChanged(e =>
             {
-                paceBands = UnderlinePace.BuildRelativeBands(lines, e.NewValue);
+                paceBands = UnderlinePace.BuildRelativeBands(lines, e.NewValue, engine.AuthoredSyllablesOnly);
 
                 for (int i = 0; i < displays.Length; i++)
                     displays[i].SetPaceColours(showPaceColours.Value ? paceBands[i] : null);
             });
+
+            // THE GROUPING SWITCH (backlog 363). The engine's AuthoredSyllablesOnly flips only when a
+            // replay's headers re-select it (attaching a stored run on the watch path, or detaching
+            // one), and the marks and bands drawn at load followed the grouping in force then.
+            regroup = () =>
+            {
+                paceBands = UnderlinePace.BuildRelativeBands(lines, paceColourMaxChange.Value, engine.AuthoredSyllablesOnly);
+
+                for (int i = 0; i < displays.Length; i++)
+                {
+                    displays[i].SetGrouping(engine.GroupingOf(lines[i]));
+                    displays[i].SetPaceBands(paceBands[i], showPaceColours.Value ? paceBands[i] : null);
+                }
+            };
+
+            engine.AuthoredSyllablesOnlyChanged += regroup;
 
             // Carets are positioned via absolute points in this stage's top-left-origin
             // local space (from ToSpaceOfOtherDrawable), so they must anchor top-left.
@@ -1435,6 +1460,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             engine.WrongKeyRejected -= onWrongKeyRejected;
             engine.AbandonReclaimed -= onAbandonReclaimed;
             engine.Rewound -= onRewound;
+
+            if (regroup != null)
+                engine.AuthoredSyllablesOnlyChanged -= regroup;
+
             base.Dispose(isDisposing);
         }
 

@@ -1315,6 +1315,52 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool InputEra2 { get; set; }
 
         /// <summary>
+        /// AUTHORED SYLLABLES ONLY (backlog 363): which of the line's two syllable groupings this run
+        /// is judged, lit, marked and paced on. On, a word the mapper did not subdivide (no authored
+        /// boundary, no usable pause) is ONE group spanning its whole unit
+        /// (<see cref="TypingLine.Syllables"/>), exactly what the editor shows; off, the automatic
+        /// syllabifier's natural cut of that word at gameplay is used instead
+        /// (<see cref="TypingLine.NaturalGrouping"/>), the grouping every replay stored before this
+        /// was played against. A stylised spelling stays ungrouped under both, and no target moves
+        /// under either: only which cells share a span, which cell the <see cref="FirstCharTiming"/>
+        /// anchor applies to, and the <see cref="CharTimedStretch"/> runs derived from the groups.
+        ///
+        /// <para>An ERA, bit 2 (value 4) of the SECOND CONFIG flags word, on exactly the terms of
+        /// <see cref="InputEra2"/>: FALSE by default, cleared by <c>ReplayEngineFeed.Apply</c> on every
+        /// CONFIG frame and set from the extended one, and set for EVERY live stack. It cannot be a
+        /// construction-time choice, because the groups are built when the engine is and the watch
+        /// path attaches a replay to an engine the live factory already built; the line therefore
+        /// carries both groupings and this flag selects one (<see cref="TypingLine.GroupingFor"/>).
+        /// A display reading the groups has to re-lay its marks when the flag flips
+        /// (<see cref="AuthoredSyllablesOnlyChanged"/>).</para>
+        /// </summary>
+        public bool AuthoredSyllablesOnly
+        {
+            get => authoredSyllablesOnly;
+            set
+            {
+                if (authoredSyllablesOnly == value)
+                    return;
+
+                authoredSyllablesOnly = value;
+                AuthoredSyllablesOnlyChanged?.Invoke();
+            }
+        }
+
+        private bool authoredSyllablesOnly;
+
+        /// <summary>
+        /// Raised whenever <see cref="AuthoredSyllablesOnly"/> actually changes value, which outside
+        /// construction is only a replay's header frames re-selecting the grouping (the watch path
+        /// attaching or detaching a stored run). Read by the lyric stack to re-lay the syllable marks
+        /// and pace bands it drew from the other grouping.
+        /// </summary>
+        public event Action? AuthoredSyllablesOnlyChanged;
+
+        /// <summary>The syllable grouping <see cref="AuthoredSyllablesOnly"/> selects on <paramref name="line"/>.</summary>
+        public SyllableGrouping GroupingOf(TypingLine line) => line.GroupingFor(AuthoredSyllablesOnly);
+
+        /// <summary>
         /// Whether the flexible caret was asked for by a MOD rather than by the era bit, which is
         /// the one thing a CONFIG frame cannot say for itself. The retired "FT" mod is the only
         /// pre-208 way a run was flexible, and it recorded flags bit 5 CLEAR (the bit did not
@@ -1872,7 +1918,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// (<see cref="AllowWrongInput"/>, <see cref="SpaceSkipsWord"/>,
         /// <see cref="SyllableTiming"/>, <see cref="WrongInputOnWordGaps"/>,
         /// <see cref="StrictSpaces"/>, <see cref="BackDatedSealBreak"/>,
-        /// <see cref="UnhalvedHardRockWindows"/>), the mod flags
+        /// <see cref="UnhalvedHardRockWindows"/>, and the second word's <see cref="RushCapCostsAccuracy"/>,
+        /// <see cref="InputEra2"/> and <see cref="AuthoredSyllablesOnly"/>), the mod flags
         /// (<see cref="FletcherEnabled"/>, <see cref="MashingEnabled"/>, <see cref="Literate"/>,
         /// <see cref="CaseSensitive"/>, <see cref="HardRockFromMod"/>),
         /// <see cref="WindowScale"/> and the era rules
@@ -3859,10 +3906,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// it at the window's edge, and the early side is byte-identical to the span rule since a
         /// press before the start already judged on that distance. The stretch exclusion above wins
         /// for a stretch cell that opens a group, which stays on its own (stricter) point target.</para>
+        ///
+        /// <para>WHICH groups (and therefore which stretch runs) is <see cref="AuthoredSyllablesOnly"/>'s
+        /// answer (backlog 363): the line's authored grouping on every live run, the natural one a
+        /// stored replay without the era bit was played against.</para>
         /// </summary>
         private double judgedDeltaFor(TypingLine line, int cellIndex, double time)
         {
-            if (SyllableTiming && !(CharTimedStretch && line.IsCharTimedStretch(cellIndex)))
+            SyllableGrouping grouping = GroupingOf(line);
+
+            if (SyllableTiming && !(CharTimedStretch && grouping.IsCharTimedStretch(cellIndex)))
             {
                 // The shelter's span: the WORD under Easy's arm, the syllable otherwise. Both arms
                 // are the same four lines below, deliberately: one rule, two spans.
@@ -3883,12 +3936,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 }
                 else
                 {
-                    int syllable = line.SyllableIndexOf(cellIndex);
+                    int syllable = grouping.IndexOf(cellIndex);
 
                     if (syllable < 0)
                         return time - line.Cells[cellIndex].TargetTime;
 
-                    SyllableGroup group = line.Syllables[syllable];
+                    SyllableGroup group = grouping.Groups[syllable];
                     startCell = group.StartCell;
                     startTime = group.StartTime;
                     endTime = group.EndTime;

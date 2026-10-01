@@ -16,6 +16,7 @@ using NUnit.Framework;
 using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.IO;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Import;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -391,7 +392,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var hitObjects = beatmap.HitObjects.OfType<TypeBeatHitObject>().ToList();
 
             Assert.That(hitObjects.Count, Is.EqualTo(2));
-            Assert.That(hitObjects.All(h => h.Granularity == TimingGranularity.Line), Is.True, "expected line granularity");
+            // Since backlog 363 (CHOICE B) an LRC import is syllabified once, here: "hello" and
+            // "second" carry their natural subdivisions, so the map is Syllable rather than Line.
+            Assert.That(hitObjects.All(h => h.Granularity == TimingGranularity.Syllable), Is.True, "expected syllable granularity");
+            Assert.That(hitObjects[0].Line.Units[0].SyllableSplits, Is.EqualTo(Syllabifier.SplitPoints("hello")));
             Assert.That(hitObjects[0].Line.RawText, Is.EqualTo("hello world"));
             Assert.That(hitObjects[0].StartTime, Is.EqualTo(1000));
 
@@ -1223,8 +1227,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // The whole of backlog 202's import work is gated on a line carrying a mark. This is
             // the pin on that gate: for lyrics with neither, the document is character for
-            // character the three-key line shape the synthesiser has always emitted.
-            string lyricsContent = File.ReadAllText(StandaloneMaps.Require("Friday Pilots Club - Spectator", "lyrics.txt"));
+            // character the three-key line shape the synthesiser has always emitted. Since backlog
+            // 363 the import also syllabifies, so the gate is pinned on lyrics with no word of more
+            // than one syllable; the real fixture's syllabified document is pinned by
+            // ImportSyllablesTest.
+            const string lyricsContent = "[00:01.00]so we go\n[00:03.50]let it be\n[00:06.00]and that is all\n";
+
+            Assert.That(LrcParser.Parse(lyricsContent).SelectMany(l => l.Units).All(u => Syllabifier.SplitPoints(u.Text).Count == 0), Is.True,
+                "the fixture must hold one-syllable words only");
 
             string? actual = LyricMapImporter.SynthesizeTimingJsonFromLrc(lyricsContent);
             Assert.That(actual, Is.Not.Null);

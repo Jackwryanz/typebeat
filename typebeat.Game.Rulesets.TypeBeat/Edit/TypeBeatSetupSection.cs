@@ -700,6 +700,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return;
             }
 
+            // Syllabified ONCE, here, like every other import sink (backlog 363): this path parses
+            // the TTML itself rather than going through the importer's synthesis.
+            lines = ImportSyllables.Apply(lines);
+
             TypeBeatEditorOperations.ReplaceLines(Beatmap, lines, TypeBeatEditorOperations.InferGranularity(lines));
 
             string message = $"Imported {lines.Count} lyric lines from {file.Name}.";

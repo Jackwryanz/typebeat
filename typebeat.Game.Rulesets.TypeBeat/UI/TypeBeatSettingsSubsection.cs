@@ -182,7 +182,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = "Show syllable markers",
-                    HintText = "Show a small triangle at each syllable boundary inside a word, including automatically split syllables. Display only.",
+                    HintText = "Show a small triangle at each syllable boundary inside a word. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyllableMarkers),
                 }),
                 new SettingsItemV2(new FormCheckBox

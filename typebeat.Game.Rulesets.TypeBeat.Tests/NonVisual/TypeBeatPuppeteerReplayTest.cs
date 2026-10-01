@@ -254,7 +254,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // The SECOND flags word (backlog 347) rides its own header at the anchor, and has to
             // survive the derivation the same way.
-            stored.Frames.Add(TypeBeatReplayFrame.CreateExtendedConfigFrame(-2000, rushCapCostsAccuracy: true));
+            stored.Frames.Add(TypeBeatReplayFrame.CreateExtendedConfigFrame(-2000, rushCapCostsAccuracy: true, inputEra2: true, authoredSyllablesOnly: true));
 
             foreach (var frame in run.WallFrames.Skip(1).Where(f => !f.IsConfigExtended))
                 stored.Frames.Add(new TypeBeatReplayFrame(frame.Time, frame.Character));
@@ -263,6 +263,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.IsTrue(derived[1].IsConfigExtended, "the extended header keeps its place");
             Assert.IsTrue(derived[1].RushCapCostsAccuracy, "second-word bit 0 carried");
+            Assert.IsTrue(derived[1].InputEra2, "second-word bit 1 carried");
+            Assert.IsTrue(derived[1].AuthoredSyllablesOnly, "second-word bit 2 carried (backlog 363)");
+            Assert.AreEqual(7, derived[1].ToLegacy(map).MouseY, "the whole second word survives");
             Assert.AreEqual(-2000, derived[1].Time, "at the anchor, beside the CONFIG frame");
 
             Assert.IsTrue(derived[0].IsConfig);

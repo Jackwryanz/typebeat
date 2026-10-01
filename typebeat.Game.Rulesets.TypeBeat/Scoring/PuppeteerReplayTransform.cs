@@ -258,6 +258,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             FirstLineLeadIn = source.FirstLineLeadIn,
             RushCapCostsAccuracy = source.RushCapCostsAccuracy,
             InputEra2 = source.InputEra2,
+            AuthoredSyllablesOnly = source.AuthoredSyllablesOnly,
         };
     }
 }

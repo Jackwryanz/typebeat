@@ -668,6 +668,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             private readonly DrawableTypeBeatRuleset? drawableRuleset;
 
             private Game.Replays.Replay? activeReplay;
+
+            /// <summary>
+            /// The second-word eras the live factory gave the engine, taken when a replay first
+            /// attaches and put back when it detaches (the editor's autoplay toggle), so a mapper
+            /// typing on after autoplay plays on the live rules again rather than on whatever the
+            /// replay's headers selected (backlog 363: above all the grouping, which the lyric stack
+            /// re-lays when it flips back).
+            /// </summary>
+            private (bool RushCapCostsAccuracy, bool InputEra2, bool AuthoredSyllablesOnly)? liveExtendedEras;
             private int nextFrameIndex;
 
             /// <summary>
@@ -703,6 +712,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // The replay can be swapped mid-play (editor autoplay toggle); restart feeding.
                     if (!ReferenceEquals(replay, activeReplay))
                     {
+                        liveExtendedEras ??= (engine.RushCapCostsAccuracy, engine.InputEra2, engine.AuthoredSyllablesOnly);
                         activeReplay = replay;
                         nextFrameIndex = 0;
                         lastFedTime = double.NegativeInfinity;
@@ -734,6 +744,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                                 break;
                             }
+
+                            // A replay that opens on an extended header with NO CONFIG frame ahead of
+                            // it is autoplay's (backlog 363, TypeBeatAutoGenerator): it keeps the live
+                            // engine's first word and carries only the second-word era it presses
+                            // for, so that header is primed on its own.
+                            if (frames[i] is TypeBeatReplayFrame { IsConfigExtended: true } lone)
+                            {
+                                ReplayEngineFeed.Apply(engine, lone, clockRate);
+                                break;
+                            }
                         }
                     }
 
@@ -758,6 +778,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                         nextFrameIndex++;
                     }
+                }
+                else if (activeReplay != null)
+                {
+                    // DETACHED (the editor's autoplay toggle handing the play back): the live eras
+                    // return, and the next attach starts from a clean feed.
+                    activeReplay = null;
+
+                    if (liveExtendedEras is { } live)
+                    {
+                        engine.RushCapCostsAccuracy = live.RushCapCostsAccuracy;
+                        engine.InputEra2 = live.InputEra2;
+                        engine.AuthoredSyllablesOnly = live.AuthoredSyllablesOnly;
+                    }
+
+                    liveExtendedEras = null;
                 }
 
                 // THE PLAY DECLARES WHERE IT BEGAN (see TypingEngine.SetPlayStart): a play can start

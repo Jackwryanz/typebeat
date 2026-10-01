@@ -199,7 +199,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>
         /// Cut one line into word segments and price each one. Without authored subdivision
-        /// markers, each segment ends after the gap that closes its word.
+        /// markers, each segment ends after the gap that closes its word (since backlog 363 that is
+        /// every word the map did not subdivide: nothing splits one at gameplay any more).
         ///
         /// <para><paramref name="lineSungEndMs"/> closes the LAST segment, and the caller is expected
         /// to pass what <see cref="TypingLine"/>'s own sung polyline ends at (see
@@ -275,7 +276,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>Cut a whole line at authored subdivisions and word gaps, closing the last segment at its sung end.</summary>
         public static PaceSegment[] SegmentLine(TypingLine line)
-            => segmentLine(line.Cells, SungEndOf(line), line.SyllableMarkerCells);
+            => SegmentLine(line, authoredSyllablesOnly: true);
+
+        /// <summary>
+        /// Cut a whole line at the subdivision marks of the grouping
+        /// <paramref name="authoredSyllablesOnly"/> selects (backlog 363, see
+        /// <see cref="TypingLine.GroupingFor"/>) and at word gaps. The live grouping marks only the
+        /// mapper's own subdivisions; the natural one, which a replay stored before that change plays
+        /// back on, also cuts at the automatic syllabifier's splits.
+        /// </summary>
+        public static PaceSegment[] SegmentLine(TypingLine line, bool authoredSyllablesOnly)
+            => segmentLine(line.Cells, SungEndOf(line), line.GroupingFor(authoredSyllablesOnly).MarkerCells);
 
         /// <summary>
         /// Where a line stops being sung: <see cref="TypingLine.SweepEndTime"/>, which IS the last
@@ -356,11 +367,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>Colour each word or subdivision against its immediate predecessor, across line breaks.</summary>
         public static PaceBand[][] BuildRelativeBands(IReadOnlyList<TypingLine> lines,
-                                                        double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT)
-            => buildBands(lines, relativeToPrevious: true, maxChangePercent);
+                                                        double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT,
+                                                        bool authoredSyllablesOnly = true)
+            => buildBands(lines, relativeToPrevious: true, maxChangePercent, authoredSyllablesOnly);
 
         private static PaceBand[][] buildBands(IReadOnlyList<TypingLine> lines, bool relativeToPrevious,
-                                                double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT)
+                                                double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT,
+                                                bool authoredSyllablesOnly = true)
         {
             int m = lines.Count;
             var perLine = new PaceSegment[m][];
@@ -368,7 +381,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int k = 0; k < m; k++)
             {
-                perLine[k] = SegmentLine(lines[k]);
+                perLine[k] = SegmentLine(lines[k], authoredSyllablesOnly);
 
                 foreach (var segment in perLine[k])
                     speeds.Add(segment.Speed);

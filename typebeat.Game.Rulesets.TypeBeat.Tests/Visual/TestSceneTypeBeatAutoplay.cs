@@ -66,7 +66,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestAutoplayPlaysPerfectly()
         {
             AddAssert("replay attached", () => Player.DrawableRuleset.ReplayScore != null);
-            AddAssert("replay has one frame per typeable cell", () => Player.DrawableRuleset.ReplayScore!.Replay.Frames.Count == 4);
+            AddAssert("replay has one press per typeable cell", () =>
+                Player.DrawableRuleset.ReplayScore!.Replay.Frames.Cast<Replays.TypeBeatReplayFrame>().Count(f => !f.IsConfigExtended) == 4);
+
+            // Backlog 363: autoplay carries its grouping era in two extended headers (ahead of the
+            // first press and of the last), since attaching a replay clears the live engine's.
+            AddAssert("and the era headers", () =>
+                Player.DrawableRuleset.ReplayScore!.Replay.Frames.Cast<Replays.TypeBeatReplayFrame>().Count(f => f.IsConfigExtended && f.AuthoredSyllablesOnly) == 2);
 
             AddUntilStep("engine finished", () => playfield.Engine.IsFinished);
 

@@ -88,9 +88,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// character; the state it reads is pulled like every other cell state.</para>
     ///
     /// <para>SYLLABLE MARKERS (backlog 225) draw a tiny apex-up triangle in the inter-character gap
-    /// at each mid-word syllable boundary, whether authored or automatically derived, so the
-    /// syllable span judgement is visible before it is heard. The cells are <see cref="TypingLine.SyllableMarkerCells"/>,
-    /// derived with the groups themselves; nothing about the geometry is recomputed here. On by
+    /// at each mid-word syllable boundary, so the syllable span judgement is visible before it is
+    /// heard. The cells are <see cref="SyllableGrouping.MarkerCells"/> of the grouping the stage
+    /// selects (<see cref="SetGrouping"/>, backlog 363): the AUTHORED one, which marks only the
+    /// mapper's own subdivisions, on every live play, and the stored-era natural one while a replay
+    /// recorded before that change plays back. Derived with the groups themselves; nothing about the
+    /// geometry is recomputed here. On by
     /// default, and the same drawables on an active line and a preview one, so the dim ladder
     /// carries them for free (<see cref="SetLineDim"/> fades the whole content container).</para>
     /// </summary>
@@ -281,7 +284,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             return cellAdvances[lo] + (cellAdvances[hi] - cellAdvances[lo]) * (float)(f - lo);
         }
 
-        /// <summary>Index into <see cref="TypingLine.Syllables"/> of the group currently being sung,
+        /// <summary>Index into the shown grouping's <see cref="SyllableGrouping.Groups"/> of the group currently being sung,
         /// -1 = none. Stage-fed (see <see cref="SetSungSyllable"/>); time-driven state, so it lives
         /// beside the sung sweep rather than in the pull-based cell states.</summary>
         private int sungSyllable = -1;
@@ -303,8 +306,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// This line's pace-band geometry and initial relative colours. The owning stage computes
         /// the colours and can select another mode without moving the bands.
         /// </summary>
-        private readonly IReadOnlyList<PaceBand>? paceBands;
+        private IReadOnlyList<PaceBand>? paceBands;
         private IReadOnlyList<PaceBand>? selectedPaceBands;
+
+        /// <summary>
+        /// The syllable grouping the marks, the sung highlight and the stretch reading follow
+        /// (backlog 363): <see cref="TypingLine.AuthoredGrouping"/> until the stage says otherwise.
+        /// </summary>
+        private SyllableGrouping grouping;
 
         public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null,
                                 IReadOnlyList<PaceBand>? paceBands = null)
@@ -316,7 +325,84 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             this.fontFamily = fontFamily;
             this.paceBands = paceBands;
             selectedPaceBands = paceBands;
+            grouping = line.AuthoredGrouping;
             AutoSizeAxes = Axes.Both;
+        }
+
+        /// <summary>The syllable grouping this display currently shows (see <see cref="SetGrouping"/>).</summary>
+        public SyllableGrouping Grouping => grouping;
+
+        /// <summary>
+        /// Show <paramref name="selected"/> (one of <see cref="Line"/>'s two groupings, backlog 363)
+        /// instead of the current one: the marks are re-laid and the sung highlight is cleared for the
+        /// stage to light again from the new groups on its next feed. A no-op for the grouping already
+        /// shown, and safe before load, where it simply decides what load builds.
+        /// </summary>
+        public void SetGrouping(SyllableGrouping selected)
+        {
+            if (ReferenceEquals(grouping, selected))
+                return;
+
+            grouping = selected;
+
+            if (!IsLoaded)
+                return;
+
+            foreach (var marker in syllableMarkers)
+                content.Remove(marker, disposeImmediately: true);
+
+            addSyllableMarkers(cells.Length);
+            measureAndLayout();
+
+            sungSyllable = -1;
+
+            for (int i = 0; i < litCells.Length; i++)
+                setCellLit(i, false);
+        }
+
+        /// <summary>
+        /// Replace the pace-band GEOMETRY (<paramref name="bands"/>) and the colours currently shown
+        /// (<paramref name="selected"/>, null for the neutral rail). Only the stage's grouping switch
+        /// calls this (backlog 363): the bands are cut at the marks, so a different grouping cuts the
+        /// rail differently. Safe before load.
+        /// </summary>
+        public void SetPaceBands(IReadOnlyList<PaceBand>? bands, IReadOnlyList<PaceBand>? selected)
+        {
+            paceBands = bands;
+            selectedPaceBands = selected;
+
+            if (!IsLoaded)
+                return;
+
+            // The flashlight seams fade every band together, so the new bands take the alpha the
+            // old ones were showing rather than popping back to full.
+            float alpha = sweepTracks.Length > 0 ? sweepTracks[0].Alpha : 1f;
+
+            foreach (var track in sweepTracks)
+                content.Remove(track, disposeImmediately: true);
+
+            foreach (var blend in sweepBlends)
+                content.Remove(blend, disposeImmediately: true);
+
+            buildPaceTracks(cells.Length);
+
+            // Rebuilt tracks go to the BACK, where the load put the originals (they were the first
+            // drawables added): a positive depth sorts behind every depth-0 sibling.
+            foreach (var track in sweepTracks)
+            {
+                track.Depth = 1;
+                track.Alpha = alpha;
+                content.Add(track);
+            }
+
+            foreach (var blend in sweepBlends)
+            {
+                blend.Depth = 1;
+                blend.Alpha = alpha;
+                content.Add(blend);
+            }
+
+            measureAndLayout();
         }
 
         [BackgroundDependencyLoader]
@@ -404,6 +490,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // so glyphs stay legible over a beatmap video/image, not just the flat panel.
                     ShadowColour = TypeBeatStyle.TextShadow,
                     ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
+                    // In FRONT of every adornment, including the syllable marks SetGrouping re-adds
+                    // after load (backlog 363), which would otherwise sort after the glyphs.
+                    Depth = -1,
                 };
                 cells[i] = cell;
                 content.Add(cell);
@@ -590,7 +679,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             var marks = new List<int>();
 
-            foreach (int i in Line.SyllableMarkerCells)
+            foreach (int i in grouping.MarkerCells)
             {
                 // Defensive: a mark is only ever drawable in a real gap, never at the line's own
                 // leading edge (cellX[0]) and never past its last cell.
@@ -1622,7 +1711,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             sungSyllable = index;
             for (int i = 0; i < litCells.Length; i++)
-                setCellLit(i, index >= 0 && Line.SyllableIndexOf(i) == index);
+                setCellLit(i, index >= 0 && grouping.IndexOf(i) == index);
         }
 
         /// <summary>Follow syllable spans or character targets using the actual Great windows.</summary>
@@ -1638,7 +1727,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 var (start, end) = sungSpan(i);
                 bool lit = Line.Cells[i].IsCountable && time >= start - greatEarly && time <= end + greatLate;
-                int group = Line.SyllableIndexOf(i);
+                int group = grouping.IndexOf(i);
                 if (lit && group >= 0 && (primary < 0 || time >= start && time <= end))
                     primary = group;
                 setCellLit(i, lit);
@@ -1649,10 +1738,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private (double start, double end) sungSpan(int index)
         {
-            int group = Line.SyllableIndexOf(index);
-            if (!characterTiming && !(charTimedStretch && Line.IsCharTimedStretch(index)) && group >= 0)
+            int group = grouping.IndexOf(index);
+            if (!characterTiming && !(charTimedStretch && grouping.IsCharTimedStretch(index)) && group >= 0)
             {
-                var span = Line.Syllables[group];
+                var span = grouping.Groups[group];
                 return (span.StartTime, span.EndTime);
             }
             double target = Line.Cells[index].TargetTime;

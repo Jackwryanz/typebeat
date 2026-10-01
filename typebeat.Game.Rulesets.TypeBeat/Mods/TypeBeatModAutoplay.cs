@@ -44,12 +44,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             // judged on distance from the span's start, so autoplay must press that start rather
             // than a target sitting later inside the span. Both are inert under Hard Rock, whose
             // classic engine presses and judges every cell on its point target.
+            //
+            // Backlog 363's grouping rides along too, and is the one the generator must also CARRY:
+            // the live engine plays a word nobody subdivided as one group, the watch path clears
+            // that era on attach, so the generator writes the extended header that sets it again.
             => new ModReplayData(new TypeBeatAutoGenerator(beatmap,
                     literate: mods.Any(m => m is TypeBeatModLiterate),
                     syllableTiming: !mods.Any(m => m is TypeBeatModHardRock),
                     charTimedStretch: true,
                     firstCharTiming: true,
-                    wordShelter: mods.Any(m => m is TypeBeatModEasy)).Generate(),
+                    wordShelter: mods.Any(m => m is TypeBeatModEasy),
+                    authoredSyllablesOnly: true).Generate(),
                 new ModCreatedUser { Username = "typebot" });
     }
 }

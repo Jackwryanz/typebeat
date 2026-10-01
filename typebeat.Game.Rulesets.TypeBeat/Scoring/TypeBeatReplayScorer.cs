@@ -505,7 +505,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // so BOTH arms are selected by the replay itself and this builder chooses neither. The
             // one mod that touches the cap, Puppeteer, exempts it below for both arms alike.
             // InputEra2 is the second bit of that word and is on the same terms again: the replay
-            // selects it, and this builder chooses neither arm.
+            // selects it, and this builder chooses neither arm. AuthoredSyllablesOnly (bit 2,
+            // backlog 363) is the third, on the same terms: the lines carry both groupings and the
+            // replay's own header picks one.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the arms below compose in any order. A replay carries
