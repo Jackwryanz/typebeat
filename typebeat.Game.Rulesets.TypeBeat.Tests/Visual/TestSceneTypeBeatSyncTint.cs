@@ -207,10 +207,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // window tier, which is the only way this lands on exactly half quality.
             AddAssert("the late char sits at exactly half the ramp", () => same(colour(1), LyricLineDisplay.CorrectCharColour(0.5)));
 
-            // Unchanged, which in this scene means still wearing the sung group's highlight grey
-            // rather than the plain untyped one: the point is that the ramp reached neither of the
-            // two chars it did not score.
-            AddAssert("an untyped char ahead of the caret is unchanged", () => same(colour(4), TypeBeatStyle.SungChar));
+            // The untyped suffix waits for the preceding freestyle character's window to open.
+            // The scored characters' sync tint must not reach it during that wait.
+            AddAssert("the waiting suffix keeps its untyped grey", () => same(colour(4), TypeBeatStyle.UntypedChar));
             AddAssert("and it did not pick up the late char's tint", () => !same(colour(4), colour(1)));
         }
 

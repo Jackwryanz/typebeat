@@ -167,6 +167,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 }),
                 new SettingsItemV2(new FormCheckBox
                 {
+                    Caption = "Syllable fade-in",
+                    HintText = "Gradually brighten upcoming syllables or characters from the Ok window opening, reaching your sung brightness at the Great window. Display only.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.SyllableFadeIn),
+                }),
+                new SettingsItemV2(new FormCheckBox
+                {
                     Caption = "Text pop-in",
                     HintText = "Gently grow upcoming syllables or characters to full size as their Great timing window opens. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.TextPopIn),
@@ -188,8 +194,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = "Show word pace colours",
-                    HintText = "Colour each word or subdivision by its speed relative to the previous one. Turn this off for a plain underline. Display only.",
+                    HintText = "Colour each word or subdivision using the selected pace colour mode. Turn this off for a plain underline. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowPaceColours),
+                }),
+                new SettingsItemV2(new FormDropdown<PaceColourMode>
+                {
+                    Caption = "Pace colour mode",
+                    HintText = "Map-relative compares pace with the map's average WPM: at 100% maximum change, half the average is fully green and 50% above it is fully red. Acceleration-based compares pace with the preceding word or subdivision. Display only.",
+                    Items = new[] { PaceColourMode.MapRelative, PaceColourMode.AccelerationBased },
+                    Current = config.GetBindable<PaceColourMode>(TypeBeatRulesetSetting.PaceColourMode),
                 }),
                 new SettingsItemV2(new FormSliderBar<float>
                 {
@@ -198,6 +211,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Current = config.GetBindable<float>(TypeBeatRulesetSetting.PaceColourMaxChange),
                     KeyboardStep = 1f,
                     LabelFormat = v => $"{v:0}%",
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
+                {
+                    Caption = "Pace colour opacity curve",
+                    HintText = "Controls how quickly pace colours gain opacity. Linear changes evenly; exponential keeps small pace differences more transparent and strengthens larger ones. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.PaceColourOpacityCurve),
+                    KeyboardStep = 1f,
+                    LabelFormat = v => v == 0 ? "Linear" : v == 100 ? "Exponential" : $"{v:0}% exponential",
                 }),
             };
         }

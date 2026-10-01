@@ -58,6 +58,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Manual newlines",
                     "Use map fonts",
                     "Use space error dot",
+                    "Syllable fade-in",
                     "Text pop-in",
                     "Show syllable markers",
                     "Show word pace colours",
@@ -72,6 +73,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     TypeBeatRulesetSetting.ManualNewlines,
                     TypeBeatRulesetSetting.UseMapFonts,
                     TypeBeatRulesetSetting.UseSpaceErrorDot,
+                    TypeBeatRulesetSetting.SyllableFadeIn,
                     TypeBeatRulesetSetting.TextPopIn,
                     TypeBeatRulesetSetting.ShowSyllableMarkers,
                     TypeBeatRulesetSetting.ShowPaceColours,
@@ -93,7 +95,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // And the defaults the game ships with, which the move must not have reset either.
                 // Manual newlines, map fonts, the space error dot, syllable markers and pace colours
                 // ship on by default.
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, false, true, true }));
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, false, false, true, true }));
             }
         }
 
@@ -119,6 +121,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     FormDropdown<string> font => font.Caption.ToString(),
                     FormDropdown<KeyboardLayout> layout => layout.Caption.ToString(),
                     FormDropdown<CaretStyle> caret => caret.Caption.ToString(),
+                    FormDropdown<PaceColourMode> mode => mode.Caption.ToString(),
                     _ => "?",
                 }), Is.EqualTo(new[]
                 {
@@ -136,12 +139,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Caret smoothing",
                     "Use space error dot",
                     "Sung syllable brightness",
+                    "Syllable fade-in",
                     "Text pop-in",
                     "Pop-in amount",
                     "Show syllable markers",
                     "Show word pace colours",
+                    "Pace colour mode",
                     "Pace colour maximum change",
+                    "Pace colour opacity curve",
                 }));
+
+                var fadeIn = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Syllable fade-in");
+                fadeIn.Current.Value = true;
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.SyllableFadeIn), Is.True);
+                config.SetValue(TypeBeatRulesetSetting.SyllableFadeIn, false);
+                Assert.That(fadeIn.Current.Value, Is.False);
 
                 var popIn = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Text pop-in");
                 Assert.That(popIn.Current.Value, Is.False);
@@ -159,9 +171,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 config.SetValue(TypeBeatRulesetSetting.TextPopInAmount, 100f);
                 Assert.That(amount.Current.Value, Is.EqualTo(20f), "amount is bounded to the slider range");
 
+                var mode = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormDropdown<PaceColourMode>>().Single();
+                Assert.That(mode.Current.Value, Is.EqualTo(PaceColourMode.MapRelative));
+                Assert.That(mode.Items, Is.EqualTo(new[] { PaceColourMode.MapRelative, PaceColourMode.AccelerationBased }));
+                mode.Current.Value = PaceColourMode.AccelerationBased;
+                Assert.That(config.Get<PaceColourMode>(TypeBeatRulesetSetting.PaceColourMode), Is.EqualTo(PaceColourMode.AccelerationBased));
+                config.SetValue(TypeBeatRulesetSetting.PaceColourMode, PaceColourMode.MapRelative);
+                Assert.That(mode.Current.Value, Is.EqualTo(PaceColourMode.MapRelative));
+
                 var pace = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Pace colour maximum change");
                 Assert.That(pace.Current.Value, Is.EqualTo(100f));
                 Assert.That(pace.HintText.ToString(), Does.Contain("Defaults to 100%"));
+                var curve = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Pace colour opacity curve");
+                Assert.That(curve.Current.Value, Is.Zero);
+                Assert.That(curve.LabelFormat!(0).ToString(), Is.EqualTo("Linear"));
+                Assert.That(curve.LabelFormat!(100).ToString(), Is.EqualTo("Exponential"));
+                curve.Current.Value = 65f;
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.PaceColourOpacityCurve), Is.EqualTo(65f));
+                config.SetValue(TypeBeatRulesetSetting.PaceColourOpacityCurve, 1000f);
+                Assert.That(curve.Current.Value, Is.EqualTo(100f));
+
             }
         }
 

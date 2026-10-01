@@ -90,6 +90,93 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        [TestCase(100, 100, 0)]
+        [TestCase(200, 100, 0.5)]
+        [TestCase(300, 100, 1)]
+        [TestCase(50, 100, 0)]
+        [TestCase(400, 100, 1)]
+        [TestCase(160, 25, 0)]
+        [TestCase(225, 25, 1)]
+        [TestCase(200 / 1.5, 50, 0)]
+        [TestCase(250, 50, 1)]
+        [TestCase(80, 150, 0)]
+        [TestCase(350, 150, 1)]
+        public void MapRelativeColoursUseRequestedWpmThresholds(double wpm, double percent, double rank)
+        {
+            Assert.That(UnderlinePace.ColourForMapAverage(wpm, 200, percent),
+                Is.EqualTo(UnderlinePace.ColourForRank(rank)));
+        }
+
+        [Test]
+        public void MapRelativeColoursGrowSmoothlyAndHandleEmptyMaps()
+        {
+            Assert.That(UnderlinePace.ColourForMapAverage(0, 200), Is.EqualTo(UnderlinePace.ColourForRank(0)));
+            Assert.That(UnderlinePace.ColourForMapAverage(200, 0), Is.EqualTo(UnderlinePace.NeutralColour));
+            Assert.That(UnderlinePace.ColourForMapAverage(double.NaN, 200), Is.EqualTo(UnderlinePace.NeutralColour));
+            Assert.That(UnderlinePace.ColourForMapAverage(100, 200, double.NaN), Is.EqualTo(UnderlinePace.ColourForRank(0)));
+            Assert.That(UnderlinePace.BuildMapRelativeBands(Array.Empty<TypingLine>(), 0), Is.Empty);
+            var slower = UnderlinePace.ColourForMapAverage(150, 200);
+            var faster = UnderlinePace.ColourForMapAverage(250, 200);
+            Assert.That(slower, Is.Not.EqualTo(UnderlinePace.NeutralColour).And.Not.EqualTo(UnderlinePace.ColourForRank(0)));
+            Assert.That(faster, Is.Not.EqualTo(UnderlinePace.NeutralColour).And.Not.EqualTo(UnderlinePace.ColourForRank(1)));
+            Assert.That(UnderlinePace.ColourForMapAverage(120, 200).G, Is.GreaterThan(slower.G));
+            Assert.That(UnderlinePace.ColourForMapAverage(275, 200).R, Is.GreaterThan(faster.R));
+        }
+
+        [Test]
+        public void MapRelativeColoursCompareEverySegmentWithTheMapAverage()
+        {
+            var lines = mixedMap();
+            double average = LyricPaceStatistics.Compute(lines.Select(l => l.Source)).AverageWpm;
+            var bands = UnderlinePace.BuildMapRelativeBands(lines, average);
+            // Equal-speed neighbours share their map-relative colour, including the first segment.
+            Assert.That(bands[0].Select(b => b.Colour), Is.All.EqualTo(UnderlinePace.ColourForRank(0)));
+            Assert.That(bands[^1].Select(b => b.Colour), Is.All.EqualTo(UnderlinePace.ColourForRank(1)));
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var segments = UnderlinePace.SegmentLine(lines[i]);
+                Assert.That(bands[i].Select(b => (b.StartCell, b.EndCellExclusive)),
+                    Is.EqualTo(segments.Select(b => (b.StartCell, b.EndCellExclusive))));
+            }
+        }
+
+        [TestCase(0.125)]
+        [TestCase(0.875)]
+        public void OpacityCurveBlendsLinearAndExponentialWithoutChangingHue(double rank)
+        {
+            var linear = UnderlinePace.ColourForRank(rank, 0);
+            var exponential = UnderlinePace.ColourForRank(rank, 100);
+            var blend = UnderlinePace.ColourForRank(rank, 50);
+            double exponentialMidpoint = (Math.Exp(2) - 1) / (Math.Exp(4) - 1);
+            Assert.That(linear.A, Is.EqualTo(UnderlinePace.NEUTRAL_ALPHA + (UnderlinePace.HUED_ALPHA - UnderlinePace.NEUTRAL_ALPHA) / 2).Within(0.000001));
+            Assert.That(exponential.A, Is.EqualTo(UnderlinePace.NEUTRAL_ALPHA + (UnderlinePace.HUED_ALPHA - UnderlinePace.NEUTRAL_ALPHA) * exponentialMidpoint).Within(0.000001));
+            Assert.That(blend.A, Is.EqualTo((linear.A + exponential.A) / 2).Within(0.000001));
+            Assert.That((exponential.R, exponential.G, exponential.B), Is.EqualTo((linear.R, linear.G, linear.B)));
+            Assert.That(UnderlinePace.ColourForRank(rank, -10), Is.EqualTo(linear));
+            Assert.That(UnderlinePace.ColourForRank(rank, double.NaN), Is.EqualTo(linear));
+            Assert.That(UnderlinePace.ColourForRank(rank, 200), Is.EqualTo(exponential));
+            Assert.That(UnderlinePace.ColourForRank(0, 100), Is.EqualTo(UnderlinePace.ColourForRank(0)));
+            Assert.That(UnderlinePace.ColourForRank(1, 100), Is.EqualTo(UnderlinePace.ColourForRank(1)));
+            Assert.That(UnderlinePace.ColourForRank(0.5, 100), Is.EqualTo(UnderlinePace.NeutralColour));
+        }
+
+        [Test]
+        public void BothPaceModesApplyTheOpacityCurve()
+        {
+            var previousLinear = UnderlinePace.ColourForPreviousSpeed(250, 200);
+            var previousExponential = UnderlinePace.ColourForPreviousSpeed(250, 200, opacityCurve: 100);
+            var mapLinear = UnderlinePace.ColourForMapAverage(250, 200);
+            var mapExponential = UnderlinePace.ColourForMapAverage(250, 200, opacityCurve: 100);
+            Assert.That(previousExponential.A, Is.LessThan(previousLinear.A));
+            Assert.That(mapExponential.A, Is.LessThan(mapLinear.A));
+            var lines = mixedMap();
+            double average = LyricPaceStatistics.Compute(lines.Select(l => l.Source)).AverageWpm;
+            Assert.That(UnderlinePace.BuildMapRelativeBands(lines, average, opacityCurve: 100)[1][0].Colour.A,
+                Is.LessThan(UnderlinePace.BuildMapRelativeBands(lines, average)[1][0].Colour.A));
+            Assert.That(UnderlinePace.BuildRelativeBands(lines, opacityCurve: 100)[3][0].Colour,
+                Is.EqualTo(UnderlinePace.BuildRelativeBands(lines)[3][0].Colour));
+        }
+
         #region The colour ramp
 
         [Test]
@@ -254,7 +341,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             double[] ranks = UnderlinePace.RanksOf(Enumerable.Repeat(0.003, 7).ToArray());
 
             Assert.That(ranks, Is.All.EqualTo(0.5));
-            Assert.That(ranks.Select(UnderlinePace.ColourForRank), Is.All.EqualTo(UnderlinePace.NeutralColour));
+            Assert.That(ranks.Select(rank => UnderlinePace.ColourForRank(rank)), Is.All.EqualTo(UnderlinePace.NeutralColour));
         }
 
         [Test]
@@ -584,7 +671,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             double[] perLine = UnderlinePace.RanksOf(UnderlinePace.SegmentLine(lines[4]).Select(s => s.Speed).ToArray());
 
             Assert.That(perLine, Is.All.EqualTo(0.5));
-            Assert.That(perLine.Select(UnderlinePace.ColourForRank), Is.All.EqualTo(UnderlinePace.NeutralColour),
+            Assert.That(perLine.Select(rank => UnderlinePace.ColourForRank(rank)), Is.All.EqualTo(UnderlinePace.NeutralColour),
                 "per-line percentiles would grey out the very line this feature exists to mark");
         }
 

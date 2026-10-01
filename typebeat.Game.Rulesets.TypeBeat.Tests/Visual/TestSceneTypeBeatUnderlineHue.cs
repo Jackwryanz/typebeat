@@ -9,6 +9,7 @@ using osu.Framework.Testing;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -48,6 +49,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         protected override Ruleset CreateRuleset() => new TypeBeatRuleset();
 
+        private TypeBeatRulesetConfigManager config => (TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!;
+
         private TypingEngine engine => ((TypeBeatPlayfield)drawableRuleset.Playfield).Engine;
         private LyricStage stage => drawableRuleset.ChildrenOfType<LyricStage>().Single();
         private LyricLineDisplay display(int line) => stage.DisplayAt(line)!;
@@ -80,11 +83,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             };
         }
 
+        [TearDownSteps]
+        public void RestorePaceSettings() => AddStep("restore pace defaults", () =>
+        {
+            config.SetValue(TypeBeatRulesetSetting.PaceColourMode, PaceColourMode.MapRelative);
+            config.SetValue(TypeBeatRulesetSetting.PaceColourOpacityCurve, 0f);
+            config.SetValue(TypeBeatRulesetSetting.PaceColourMaxChange, 100f);
+            config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true);
+        });
+
         [SetUpSteps]
         public void SetUpSteps()
         {
             AddStep("create drawable ruleset", () =>
             {
+                config.SetValue(TypeBeatRulesetSetting.PaceColourMode, PaceColourMode.AccelerationBased);
+                config.SetValue(TypeBeatRulesetSetting.PaceColourMaxChange, 100f);
+                config.SetValue(TypeBeatRulesetSetting.PaceColourOpacityCurve, 0f);
+                config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true);
                 var ruleset = new TypeBeatRuleset();
 
                 // Line 1 is the fast one and line 4 the breathy one; the rest are typical.
@@ -151,6 +167,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 Enumerable.Range(0, 5).All(k => bandColour(k, 1) == neutral)
                 && bandColour(0, 0) == neutral
                 && bandColour(3, 0) == neutral);
+        }
+
+        [Test]
+        public void TestPaceModeAndSensitivityChangeDuringPlay()
+        {
+            float width = 0;
+            AddStep("record lyric width", () => width = display(fast_line).FullOnScreenWidth);
+            AddAssert("equal fast neighbours start neutral", () => bandColour(fast_line, 1) == neutral);
+            AddStep("use map-relative pace", () => config.SetValue(TypeBeatRulesetSetting.PaceColourMode, PaceColourMode.MapRelative));
+            AddUntilStep("both fast words are fully red", () =>
+                Enumerable.Range(0, 2).All(b => bandColour(fast_line, b) == UnderlinePace.ColourForRank(1)));
+            AddAssert("both slow words are fully green", () =>
+                Enumerable.Range(0, 2).All(b => bandColour(slow_line, b) == UnderlinePace.ColourForRank(0)));
+            AddAssert("lyric geometry unchanged", () => display(fast_line).FullOnScreenWidth == width);
+            Color4 linear = default;
+            AddStep("record linear opacity", () => linear = bandColour(0, 0));
+            AddStep("use exponential opacity", () => config.SetValue(TypeBeatRulesetSetting.PaceColourOpacityCurve, 100f));
+            AddUntilStep("opacity decreases without hue changes", () => bandColour(0, 0).A < linear.A
+                && bandColour(0, 0).R == linear.R && bandColour(0, 0).G == linear.G && bandColour(0, 0).B == linear.B);
+            AddStep("restore linear opacity", () => config.SetValue(TypeBeatRulesetSetting.PaceColourOpacityCurve, 0f));
+            AddUntilStep("linear opacity restored", () => bandColour(0, 0) == linear);
+            AddStep("lower maximum change to 25%", () => config.SetValue(TypeBeatRulesetSetting.PaceColourMaxChange, 25f));
+            AddUntilStep("typical words now reach full red", () => bandColour(0, 0) == UnderlinePace.ColourForRank(1));
+            AddStep("hide pace colours", () => config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, false));
+            AddUntilStep("underlines neutral", () => bandColour(fast_line, 1) == neutral);
+            AddStep("switch modes while hidden", () => config.SetValue(TypeBeatRulesetSetting.PaceColourMode, PaceColourMode.AccelerationBased));
+            AddAssert("underlines remain neutral", () => bandColour(fast_line, 0) == neutral);
+            AddStep("show pace colours again", () => config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true));
+            AddUntilStep("acceleration colours restored", () => bandColour(fast_line, 0) == UnderlinePace.ColourForRank(1)
+                && bandColour(fast_line, 1) == neutral);
         }
 
         /// <summary>
