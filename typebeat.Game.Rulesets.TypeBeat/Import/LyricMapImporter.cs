@@ -672,7 +672,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return result;
 
             progress("packaging map");
-            return PackageOsz(oszPath, artist, title, effectiveAudioPath, timing, lyricsContent, videoSourcePath, language, progress);
+            var packaged = PackageOsz(oszPath, artist, title, effectiveAudioPath, timing, lyricsContent, videoSourcePath, language, progress);
+
+            // The timing step's own notice (an enhanced LRC's clamped stamps) rides with the
+            // packaging summary rather than being replaced by it.
+            if (packaged.Success && result.Notice != null)
+                packaged = packaged with { Notice = packaged.Notice == null ? result.Notice : result.Notice + " " + packaged.Notice };
+
+            return packaged;
         }
 
         /// <summary>
@@ -727,6 +734,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
                 progress("using the TTML's own word timing");
                 return (LyricImportResult.Ok(string.Empty), ttmlTiming);
+            }
+
+            // An ENHANCED LRC (inline <mm:ss.xx> word stamps, backlog 356) is word-timed by its own
+            // author exactly as a TTML is, so it short-circuits the ladder the same way: it never
+            // runs the aligner and never collapses to the line-only path below.
+            if (LrcParser.HasWordStamps(lyricsContent))
+            {
+                string? wordTiming = SynthesizeTimingJsonFromEnhancedLrc(lyricsContent, language, out int clampedStamps);
+
+                if (wordTiming == null)
+                    return (LyricImportResult.Fail("the word-stamped LRC produced no usable lyric lines."), null);
+
+                progress(ENHANCED_LRC_PROGRESS);
+
+                string? clampNotice = ClampedWordStampsNotice(clampedStamps);
+
+                if (clampNotice != null)
+                    progress(clampNotice);
+
+                return (LyricImportResult.Ok(string.Empty) with { Notice = clampNotice }, wordTiming);
             }
 
             // Automatic alignment (the local aligner subprocess) is opt-in: off by default so an
@@ -1022,6 +1049,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             return SynthesizedTimingJson.Write(lines, wordTiming: false, songEndMs: lines[^1].EndTime);
         }
 
+        /// <summary>The progress line an enhanced LRC import reports (backlog 356).</summary>
+        public const string ENHANCED_LRC_PROGRESS = "word-timed alignment from the LRC's word stamps";
+
+        /// <summary>
+        /// The import notice for an enhanced LRC whose word stamps had to be clamped (out of order,
+        /// or outside their line), or null when none were.
+        /// </summary>
+        public static string? ClampedWordStampsNotice(int clamped) => clamped switch
+        {
+            <= 0 => null,
+            1 => "1 word stamp was out of order and was clamped",
+            _ => $"{clamped} word stamps were out of order and were clamped",
+        };
+
+        /// <summary>
+        /// Builds a version-2 timing.json from an ENHANCED LRC (inline <c>&lt;mm:ss.xx&gt;</c> word
+        /// stamps, backlog 356) through the same serializer the other two paths use. Unlike the
+        /// plain LRC path this writes <c>words[]</c> for every word-stamped line, so the map lands at
+        /// Word granularity; a line of the file without inline stamps keeps the plain line shape and
+        /// the loader interpolates it, as a Word-granularity map does for any untouched line.
+        /// Returns null when the lyrics yield no lines.
+        /// </summary>
+        public static string? SynthesizeTimingJsonFromEnhancedLrc(string lyricsContent, string? language, out int clampedWordStamps)
+        {
+            var lines = LrcParser.Parse(lyricsContent, language, out clampedWordStamps);
+
+            if (lines.Count == 0)
+                return null;
+
+            return SynthesizedTimingJson.Write(lines, wordTiming: true, songEndMs: lines[^1].EndTime);
+        }
+
         /// <summary>
         /// Builds a version-2 timing.json from an Apple Music TTML, through the same serializer the
         /// LRC path uses, so a converted .ttml lands in the map as the very document the aligner
@@ -1095,7 +1154,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// THE ORIGINAL TEXT for an ALIGNER-produced timing.json (backlog 330): every line (and word)
         /// whose text needs romanising gets the romanisation as its <c>text</c> and the source as its
         /// <c>original</c>, instead of reaching the decode raw and being deleted there. The LRC and
-        /// TTML paths romanise as they parse (<see cref="LrcParser.Parse"/>,
+        /// TTML paths romanise as they parse (<see cref="LrcParser.Parse(string, string?)"/>,
         /// <see cref="TtmlParser.TryParseRaw"/>); this is the same rule for the one document that
         /// arrives already written.
         ///

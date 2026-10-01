@@ -406,6 +406,105 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             }
         }
 
+        #region Enhanced LRC (backlog 356)
+
+        private const string enhanced_lyrics =
+            "[00:01.00]a plain line here\n"
+            + "[00:05.00]<00:05.00>Never <00:05.40>gonna <00:05.80>give <00:06.10>you <00:06.50>up<00:07.00>\n"
+            + "[00:09.00]<00:09.00>out <00:08.00>of <00:09.50>order\n"
+            + "[00:12.00]\n";
+
+        /// <summary>
+        /// An enhanced LRC short-circuits the ladder like a TTML: with a working aligner INSTALLED
+        /// it is still never run, and the map lands at Word granularity rather than Line.
+        /// </summary>
+        [Test]
+        public async Task EnhancedLrcSkipsAnInstalledAlignerAndImportsWordTimed()
+        {
+            string lab = makeLab();
+            writeFakePython(lab, importsLoad: true);
+            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11\n");
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+
+            string audioPath = Path.Combine(tempRoot, "a.mp3");
+            File.WriteAllText(audioPath, "fake");
+
+            var lines = new List<string>();
+            var (result, timing) = await LyricMapImporter.ProduceTimingJsonAsync(
+                audioPath, enhanced_lyrics, "A", "B", lab, Array.Empty<string>(),
+                line => { lock (lines) lines.Add(line); }, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(lines, Has.Member(LyricMapImporter.ENHANCED_LRC_PROGRESS));
+            Assert.That(lines, Has.None.Contains("aligner"), "the aligner is never consulted");
+            Assert.That(lines, Has.None.Contains("no word-level timing"));
+
+            // The one stamp behind its neighbour is clamped, counted and reported.
+            Assert.That(result.Notice, Is.EqualTo("1 word stamp was out of order and was clamped"));
+            Assert.That(lines, Has.Member(result.Notice));
+
+            Assert.That(TimingJsonLoader.TryParse(timing!, out IReadOnlyList<LyricLine> decoded), Is.True);
+            Assert.That(TypeBeatEditorOperations.InferGranularity(decoded), Is.EqualTo(TimingGranularity.Word));
+            Assert.That(decoded[1].Units.Select(u => u.StartTime), Is.EqualTo(new[] { 5000.0, 5400, 5800, 6100, 6500 }));
+            Assert.That(decoded[2].Units.Select(u => u.StartTime), Is.EqualTo(new[] { 9000.0, 9000, 9500 }));
+
+            using var document = JsonDocument.Parse(timing!);
+            var jsonLines = document.RootElement.GetProperty("lines");
+            Assert.That(jsonLines[0].TryGetProperty("words", out _), Is.False, "the unstamped line keeps the plain shape");
+            Assert.That(jsonLines[1].GetProperty("words").GetArrayLength(), Is.EqualTo(5));
+        }
+
+        [Test]
+        public async Task EnhancedLrcPackagesWithItsNoticeEvenWithAutomaticAlignmentOff()
+        {
+            string audioPath = Path.Combine(tempRoot, "Some Artist - Some Song.mp3");
+            File.WriteAllText(audioPath, "fake audio");
+            string lyricsPath = Path.Combine(tempRoot, "lyrics.lrc");
+            File.WriteAllText(lyricsPath, enhanced_lyrics);
+
+            var result = await LyricMapImporter.BuildOszAsync(
+                audioPath, lyricsPath, "Some Artist", "Some Song",
+                configuredLyricLabPath: null,
+                startDirectories: new[] { tempRoot },
+                progress: _ => { },
+                token: CancellationToken.None,
+                useAutomaticAlignment: false).ConfigureAwait(false);
+
+            try
+            {
+                Assert.That(result.Success, Is.True, result.Error);
+                Assert.That(result.Notice, Is.EqualTo("1 word stamp was out of order and was clamped"));
+
+                using var archive = ZipFile.OpenRead(result.OszPath!);
+                var osuEntry = archive.Entries.Single(e => e.FullName.EndsWith(".osu", StringComparison.OrdinalIgnoreCase));
+                var hitObjects = decode(readEntry(osuEntry)).HitObjects.OfType<TypeBeatHitObject>().ToList();
+
+                Assert.That(hitObjects.Count, Is.EqualTo(3));
+                Assert.That(hitObjects.All(h => h.Granularity == TimingGranularity.Word), Is.True);
+            }
+            finally
+            {
+                try
+                {
+                    Directory.Delete(Path.GetDirectoryName(result.OszPath!)!, true);
+                }
+                catch
+                {
+                    // best effort
+                }
+            }
+        }
+
+        [Test]
+        public void ClampedWordStampsNoticeWording()
+        {
+            Assert.That(LyricMapImporter.ClampedWordStampsNotice(0), Is.Null);
+            Assert.That(LyricMapImporter.ClampedWordStampsNotice(1), Is.EqualTo("1 word stamp was out of order and was clamped"));
+            Assert.That(LyricMapImporter.ClampedWordStampsNotice(3), Is.EqualTo("3 word stamps were out of order and were clamped"));
+        }
+
+        #endregion
+
         #region The video split (backlog 234)
 
         [Test]
