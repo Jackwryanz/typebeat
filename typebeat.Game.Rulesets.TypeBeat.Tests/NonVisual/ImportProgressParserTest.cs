@@ -41,6 +41,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase("[12:36:30] re-aligned lines 4..8 in 1.2s", ImportStage.AligningLyrics)]
         [TestCase("alignment complete", ImportStage.AligningLyrics)]
         [TestCase("line-timed alignment ready (no word-level timing)", ImportStage.AligningLyrics)]
+        [TestCase(LyricMapImporter.ENHANCED_LRC_PROGRESS, ImportStage.AligningLyrics)]
         [TestCase("aligner unavailable (aligner exited with code 1: Traceback), trying next option", ImportStage.FallingBack)]
         [TestCase("packaging map", ImportStage.Packaging)]
         [TestCase("importing beatmap", ImportStage.Importing)]
