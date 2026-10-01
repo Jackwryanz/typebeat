@@ -448,7 +448,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(lines, Has.Member(result.Notice));
 
             Assert.That(TimingJsonLoader.TryParse(timing!, out IReadOnlyList<LyricLine> decoded), Is.True);
-            Assert.That(TypeBeatEditorOperations.InferGranularity(decoded), Is.EqualTo(TimingGranularity.Word));
+            // Syllable, not Word: the once-at-import syllabification (backlog 363) cuts the
+            // polysyllabic stamped words exactly as it cuts a plain LRC's or a TTML's.
+            Assert.That(TypeBeatEditorOperations.InferGranularity(decoded), Is.EqualTo(TimingGranularity.Syllable));
             Assert.That(decoded[1].Units.Select(u => u.StartTime), Is.EqualTo(new[] { 5000.0, 5400, 5800, 6100, 6500 }));
             Assert.That(decoded[2].Units.Select(u => u.StartTime), Is.EqualTo(new[] { 9000.0, 9000, 9500 }));
 
@@ -484,7 +486,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 var hitObjects = decode(readEntry(osuEntry)).HitObjects.OfType<TypeBeatHitObject>().ToList();
 
                 Assert.That(hitObjects.Count, Is.EqualTo(3));
-                Assert.That(hitObjects.All(h => h.Granularity == TimingGranularity.Word), Is.True);
+                Assert.That(hitObjects.All(h => h.Granularity == TimingGranularity.Syllable), Is.True, "syllabified once at import (backlog 363)");
             }
             finally
             {
