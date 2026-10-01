@@ -36,6 +36,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         private readonly bool charTimedStretch;
         private readonly bool firstCharTiming;
         private readonly bool wordShelter;
+        private readonly bool authoredSyllablesOnly;
 
         /// <param name="beatmap">The map to perfect.</param>
         /// <param name="literate">
@@ -70,7 +71,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <paramref name="syllableTiming"/> is set, because a classic engine already presses and
         /// judges every cell on its point target.
         /// </param>
-        public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false, bool charTimedStretch = false, bool firstCharTiming = false, bool wordShelter = false)
+        /// <param name="authoredSyllablesOnly">
+        /// Which of the line's two syllable groupings the presses are perfect under (backlog 363, see
+        /// <see cref="Gameplay.TypingEngine.AuthoredSyllablesOnly"/>), era-styled like the rest and
+        /// defaulting to the OLD natural grouping, so a bare construction keeps its frames byte for
+        /// byte. Set, the generator also CARRIES the era: it opens the frames with a
+        /// <see cref="TypeBeatReplayFrame.CONFIG_EXTENDED"/> header at the first press's time that sets
+        /// the bit (again ahead of the last press, see <see cref="GenerateFrames"/>), because
+        /// attaching a replay clears every second-word era on the live engine
+        /// (<c>TypeBeatPlayfield</c>) and a generator pressing for one group per unsubdivided word
+        /// would otherwise be judged against the natural groups. Only the extended header is
+        /// written: the first-word flags are the live engine's own (autoplay is built to match
+        /// them), and a CONFIG frame would clobber them with values this class does not know.
+        /// </param>
+        public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false, bool charTimedStretch = false, bool firstCharTiming = false, bool wordShelter = false,
+                                     bool authoredSyllablesOnly = false)
             : base(beatmap)
         {
             this.literate = literate;
@@ -78,6 +93,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             this.charTimedStretch = charTimedStretch;
             this.firstCharTiming = firstCharTiming;
             this.wordShelter = wordShelter;
+            this.authoredSyllablesOnly = authoredSyllablesOnly;
         }
 
         protected override void GenerateFrames()
@@ -135,6 +151,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                     Frames.Add(new TypeBeatReplayFrame(time, cell.IsFreestyle ? Typeability.FREESTYLE_AUTO_CHAR : cell.Expected));
                 }
             }
+
+            if (authoredSyllablesOnly && Frames.Count > 0)
+            {
+                // The era header (see the constructor), immediately ahead of the LAST press and at its
+                // time, and again ahead of the first. The first lands it before any keystroke a play
+                // from the top could move. The last is for the editor's autoplay toggle, which drops
+                // every frame at or before the playhead before attaching: whenever any press survives
+                // that trim, so does this header, and the watch path primes from the first header it
+                // finds, so the surviving presses are judged on the grouping they were made for.
+                Frames.Insert(Frames.Count - 1, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[^1].Time, authoredSyllablesOnly: true));
+
+                if (Frames.Count > 2)
+                    Frames.Insert(0, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[0].Time, authoredSyllablesOnly: true));
+            }
         }
 
         /// <summary>
@@ -183,7 +213,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (!syllableTiming)
                 return target;
 
-            if (charTimedStretch && line.IsCharTimedStretch(cellIndex))
+            // The grouping the grading engine reads (backlog 363), which is also what decides the
+            // stretch runs.
+            SyllableGrouping grouping = line.GroupingFor(authoredSyllablesOnly);
+
+            if (charTimedStretch && grouping.IsCharTimedStretch(cellIndex))
                 return target;
 
             // Same span the engine measures against: the word under Easy's shelter, the syllable
@@ -205,12 +239,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             }
             else
             {
-                int syllable = line.SyllableIndexOf(cellIndex);
+                int syllable = grouping.IndexOf(cellIndex);
 
                 if (syllable < 0)
                     return target;
 
-                SyllableGroup group = line.Syllables[syllable];
+                SyllableGroup group = grouping.Groups[syllable];
                 startCell = group.StartCell;
                 startTime = group.StartTime;
                 endTime = group.EndTime;

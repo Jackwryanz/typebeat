@@ -421,6 +421,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // re-derives on the rules it was played with.
                 InputEra2 = true,
 
+                // AUTHORED SYLLABLES ONLY (bit 2 of the second CONFIG word, backlog 363): a word the
+                // mapper did not subdivide is one group over its unit, not the automatic
+                // syllabifier's natural cut. Set UNCONDITIONALLY like every era flag here; every
+                // replay recorded before it re-derives on the natural groups it was played against.
+                AuthoredSyllablesOnly = true,
+
                 FlexibleCaretFromMod = legacyFletcher,
 
                 // THE ONE MOD FLAG SET HERE THAT IS NOT AN ERA (backlog 231). A stored replay can

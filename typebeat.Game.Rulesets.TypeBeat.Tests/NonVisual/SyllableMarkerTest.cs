@@ -13,7 +13,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// The SYLLABLE MARKERS (backlog 225): the tiny triangles drawn in the inter-character gap at
-    /// each mid-word syllable boundary, including automatically split words.
+    /// each mid-word syllable boundary. Since backlog 363 only an AUTHORED boundary is marked on the
+    /// live grouping; the automatic split's marks survive on the stored-era natural grouping.
     /// <see cref="TypingLine.SyllableMarkerCells"/> is the whole rule, so pinning it pins the
     /// feature; the display does nothing but hang a drawable off each cell it names.
     ///
@@ -22,8 +23,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <item>A mark can never DISAGREE with judgement, because it is read off the compacted syllable
     /// groups rather than re-derived: every marker cell opens a different group from the cell to its
     /// left. That is the pin that would fail if anyone re-implemented the placement anywhere else.</item>
-    /// <item>A naturally split word gets the same markers as an authored subdivision, while a
-    /// stylised word the syllabifier leaves ungrouped has no boundaries to mark.</item>
+    /// <item>A word nobody subdivided is one group and has no boundaries to mark (backlog 363; its
+    /// natural split is marked only on <see cref="TypingLine.NaturalGrouping"/>), and a stylised word
+    /// the syllabifier leaves ungrouped has none on either.</item>
     /// </list>
     /// </summary>
     [TestFixture]
@@ -65,27 +67,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// A word without authored boundaries still shows the boundaries of its naturally derived
-        /// syllable groups.
+        /// A word without authored boundaries is ONE group on the live grouping and shows no mark
+        /// (backlog 363: nothing is invented at gameplay that the editor does not show). The stored
+        /// era's natural grouping, which a replay recorded before that change plays back on, still
+        /// marks the syllabifier's cut.
         /// </summary>
         [Test]
-        public void AWordWithNoAuthoredBoundariesShowsAutomaticMarkers()
+        public void AWordWithNoAuthoredBoundariesShowsNoMarkersLiveAndItsNaturalMarksOnTheStoredEra()
         {
             var line = TypingLine.FromLyricLine(
                 lineOf("banana", 1000, 2000, unit("banana", 1000, 1600, Array.Empty<int>())));
 
             Assert.That(Syllabifier.IsSyllabifiable("banana"), Is.True, "the syllabifier would split it");
-            Assert.That(line.Syllables.Count, Is.GreaterThan(1), "and the engine does group it");
-            Assert.That(line.SyllableMarkerCells, Is.EqualTo(new[] { 2, 4 }));
+            Assert.That(line.Syllables, Is.EqualTo(new[] { new SyllableGroup(0, 6, 1000, 1600) }), "live: one group over the unit");
+            Assert.That(line.SyllableMarkerCells, Is.Empty);
             assertMarksSitOnGroupEdges(line);
+
+            Assert.That(line.NaturalGrouping.Groups.Count, Is.GreaterThan(1), "the stored era does group it");
+            Assert.That(line.NaturalGrouping.MarkerCells, Is.EqualTo(new[] { 2, 4 }));
+            Assert.That(line.GroupingFor(false), Is.SameAs(line.NaturalGrouping));
+            Assert.That(line.GroupingFor(true), Is.SameAs(line.AuthoredGrouping));
         }
 
         /// <summary>
-        /// One line, one authored word and one automatically split word: both show the interior
-        /// syllable boundaries, without a mark on the space between words.
+        /// One line, one authored word and one word nobody subdivided: live, only the authored word
+        /// shows its interior boundaries; the stored era marks both, and neither marks the space.
         /// </summary>
         [Test]
-        public void AuthoredAndAutomaticWordsAreBothMarked()
+        public void OnlyTheAuthoredWordIsMarkedLiveWhileTheStoredEraMarksBoth()
         {
             var line = TypingLine.FromLyricLine(
                 lineOf("banana banana", 1000, 2200,
@@ -93,8 +102,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     unit("banana", 1700, 2100, Array.Empty<int>())));
 
             Assert.That(line.DisplayText, Is.EqualTo("banana banana"));
-            Assert.That(line.SyllableMarkerCells, Is.EqualTo(new[] { 2, 4, 9, 11 }), "no mark on the space cell at 6");
+            Assert.That(line.SyllableMarkerCells, Is.EqualTo(new[] { 2, 4 }), "live: the authored word alone");
             assertMarksSitOnGroupEdges(line);
+            Assert.That(line.NaturalGrouping.MarkerCells, Is.EqualTo(new[] { 2, 4, 9, 11 }), "stored era: no mark on the space cell at 6");
         }
 
         /// <summary>

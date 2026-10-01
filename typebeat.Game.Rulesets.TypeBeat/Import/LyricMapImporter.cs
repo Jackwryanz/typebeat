@@ -776,7 +776,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     if (alignerResult.Success && timingJson != null)
                     {
                         progress("alignment complete");
-                        return (LyricImportResult.Ok(string.Empty), RomaniseLines(FlagFreestyleLines(timingJson), language));
+                        return (LyricImportResult.Ok(string.Empty), ImportSyllables.ApplyToTimingJson(RomaniseLines(FlagFreestyleLines(timingJson), language)));
                     }
 
                     if (token.IsCancellationRequested)
@@ -1019,7 +1019,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (lines.Count == 0)
                 return null;
 
-            return SynthesizedTimingJson.Write(lines, wordTiming: false, songEndMs: lines[^1].EndTime);
+            return SynthesizedTimingJson.Write(ImportSyllables.Apply(lines), wordTiming: false, songEndMs: lines[^1].EndTime);
         }
 
         /// <summary>
@@ -1045,7 +1045,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return null;
             }
 
-            return SynthesizedTimingJson.Write(lines, wordTiming: true, songEndMs: metadata.SongEndMs ?? lines[^1].SingEndTime);
+            return SynthesizedTimingJson.Write(ImportSyllables.Apply(lines), wordTiming: true, songEndMs: metadata.SongEndMs ?? lines[^1].SingEndTime);
         }
 
         /// <summary>

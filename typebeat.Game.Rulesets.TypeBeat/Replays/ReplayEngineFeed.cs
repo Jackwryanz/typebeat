@@ -177,9 +177,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // InputEra2 (bit 1) is the input era that removed the rush cap outright and changed
                 // how a word skip, a Gatekeeper space and a retype selection behave (see
                 // TypeBeatReplayFrame's remarks for the full list); it is applied here for the same
-                // reason, before the first keystroke it could move.
+                // reason, before the first keystroke it could move. AuthoredSyllablesOnly (bit 2,
+                // backlog 363) selects which of the line's two syllable groupings a press is judged
+                // against, so it too lands before the first keystroke.
                 engine.RushCapCostsAccuracy = frame.RushCapCostsAccuracy;
                 engine.InputEra2 = frame.InputEra2;
+                engine.AuthoredSyllablesOnly = frame.AuthoredSyllablesOnly;
                 return;
             }
 
@@ -217,6 +220,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         {
             engine.RushCapCostsAccuracy = false;
             engine.InputEra2 = false;
+            engine.AuthoredSyllablesOnly = false;
         }
 
         /// <summary>

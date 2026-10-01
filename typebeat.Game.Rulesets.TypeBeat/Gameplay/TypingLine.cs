@@ -6,6 +6,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
@@ -162,6 +163,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// </summary>
     public readonly record struct WordGroup(int StartCell, int EndCellExclusive, double StartTime, double EndTime);
 
+    /// <summary>
+    /// One of a <see cref="TypingLine"/>'s two SYLLABLE GROUPINGS (backlog 363): the groups, each
+    /// cell's group, the display's mid-word marks and the stretch flags derived from them, as one
+    /// unit, so a consumer that picks a grouping cannot read the groups of one and the marks of the
+    /// other.
+    ///
+    /// <para><see cref="TypingLine.AuthoredGrouping"/> is the live one: only the mapper subdivides,
+    /// so a word with no authored boundary and no usable pause is ONE group over its unit.
+    /// <see cref="TypingLine.NaturalGrouping"/> is the stored-era one every replay recorded before
+    /// <see cref="TypingEngine.AuthoredSyllablesOnly"/> was played against: the automatic
+    /// <see cref="Syllabifier"/> cuts such a word at gameplay. They differ ONLY on those words; a
+    /// line with none shares one instance between both readings.</para>
+    /// </summary>
+    public sealed class SyllableGrouping
+    {
+        private readonly int[] cellSyllable;
+        private readonly int[] markerCells;
+        private readonly bool[] charTimedStretch;
+
+        internal SyllableGrouping(SyllableGroup[] groups, int[] cellSyllable, int[] markerCells, bool[] charTimedStretch)
+        {
+            Groups = groups;
+            this.cellSyllable = cellSyllable;
+            this.markerCells = markerCells;
+            this.charTimedStretch = charTimedStretch;
+        }
+
+        /// <summary>The groups, in cell order (see <see cref="TypingLine.Syllables"/>).</summary>
+        public IReadOnlyList<SyllableGroup> Groups { get; }
+
+        /// <summary>The display's mid-word boundary marks (see <see cref="TypingLine.SyllableMarkerCells"/>).</summary>
+        public IReadOnlyList<int> MarkerCells => markerCells;
+
+        /// <summary>Index into <see cref="Groups"/> of the group that owns cell <paramref name="cellIndex"/>, or -1.</summary>
+        public int IndexOf(int cellIndex)
+            => cellIndex >= 0 && cellIndex < cellSyllable.Length ? cellSyllable[cellIndex] : -1;
+
+        /// <summary>Whether cell <paramref name="cellIndex"/> is a STRETCH cell under this grouping (see <see cref="TypingLine.IsCharTimedStretch"/>).</summary>
+        public bool IsCharTimedStretch(int cellIndex)
+            => cellIndex >= 0 && cellIndex < charTimedStretch.Length && charTimedStretch[cellIndex];
+
+        internal bool SameAs(SyllableGrouping other)
+            => Groups.SequenceEqual(other.Groups)
+               && cellSyllable.AsSpan().SequenceEqual(other.cellSyllable)
+               && markerCells.AsSpan().SequenceEqual(other.markerCells)
+               && charTimedStretch.AsSpan().SequenceEqual(other.charTimedStretch);
+    }
+
     public sealed class TypingLine
     {
         public LyricLine Source { get; }
@@ -252,8 +301,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// mid-token hyphen-space, and now a whole stylised word, can sit positionally inside a
         /// group's cell range while being in no group. Groups themselves never straddle a token, so
         /// an ungrouped token leaves a gap BETWEEN groups rather than a hole inside one.</para>
+        ///
+        /// <para>These are the AUTHORED groups (backlog 363, <see cref="AuthoredGrouping"/>): a word
+        /// the mapper did not subdivide is one group over its unit, so nothing here is invented at
+        /// gameplay. The automatic syllabifier's natural cut survives only as
+        /// <see cref="NaturalGrouping"/>, the grouping a replay stored before
+        /// <see cref="TypingEngine.AuthoredSyllablesOnly"/> re-derives on; a consumer that has an
+        /// engine reads <see cref="GroupingFor"/> rather than this.</para>
         /// </summary>
-        public IReadOnlyList<SyllableGroup> Syllables { get; }
+        public IReadOnlyList<SyllableGroup> Syllables => AuthoredGrouping.Groups;
+
+        /// <summary>
+        /// The live grouping (backlog 363): only the mapper's own subdivisions and pauses split a
+        /// word, and a syllabifiable word with neither is ONE group spanning [unit start, unit end].
+        /// A stylised spelling (<see cref="Syllabifier.IsSyllabifiable"/> false) stays ungrouped.
+        /// What <see cref="Syllables"/>, <see cref="SyllableIndexOf"/>,
+        /// <see cref="SyllableMarkerCells"/> and <see cref="IsCharTimedStretch"/> read.
+        /// </summary>
+        public SyllableGrouping AuthoredGrouping { get; }
+
+        /// <summary>
+        /// The STORED-ERA grouping (backlog 363): as <see cref="AuthoredGrouping"/>, except that a
+        /// syllabifiable word with no authored boundary and no usable pause is cut at
+        /// <see cref="Syllabifier.SplitPoints"/> into natural groups whose spans are read off the
+        /// flat-ramp targets, which is what every replay recorded before
+        /// <see cref="TypingEngine.AuthoredSyllablesOnly"/> was judged, lit and paced on. The same
+        /// instance as <see cref="AuthoredGrouping"/> on a line where the two agree.
+        /// </summary>
+        public SyllableGrouping NaturalGrouping { get; }
+
+        /// <summary>
+        /// <see cref="AuthoredGrouping"/> when <paramref name="authoredSyllablesOnly"/> (every live
+        /// run), <see cref="NaturalGrouping"/> otherwise (a stored replay without the era bit).
+        /// </summary>
+        public SyllableGrouping GroupingFor(bool authoredSyllablesOnly)
+            => authoredSyllablesOnly ? AuthoredGrouping : NaturalGrouping;
 
         /// <summary>
         /// Ascending display-cell indices at which a MID-WORD syllable boundary should be marked
@@ -261,9 +343,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// immediately LEFT of cell i", which is that cell's own left edge, so a renderer needs no
         /// arithmetic of its own and cannot land the mark half a character away from the cut.
         ///
-        /// <para>An entry exists for every surviving syllable group after the first within a word,
-        /// whether the split was authored or derived automatically. A word the syllabifier leaves
-        /// ungrouped has no boundaries to mark.</para>
+        /// <para>An entry exists for every surviving syllable group after the first within a word.
+        /// Since backlog 363 every such split is AUTHORED (a mapper's subdivision, or the cut an
+        /// authored pause makes): a word the mapper did not subdivide is one group and has nothing
+        /// to mark, and the automatic split's marks survive only on <see cref="NaturalGrouping"/>,
+        /// which a display shows while it plays back a replay stored before that change. A word the
+        /// syllabifier leaves ungrouped has no boundaries to mark.</para>
         ///
         /// <para>Read STRAIGHT OFF the compacted groups, so the mark and the judgement cannot
         /// disagree: the cell recorded here is <see cref="SyllableGroup.StartCell"/> of the group the
@@ -278,7 +363,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// nothing here feeds a target, a span, a group or the replay CONFIG frame, so a line built
         /// before this existed flattens byte-identically.</para>
         /// </summary>
-        public IReadOnlyList<int> SyllableMarkerCells { get; }
+        public IReadOnlyList<int> SyllableMarkerCells => AuthoredGrouping.MarkerCells;
 
         /// <summary>
         /// The line's WORDS (one per whitespace token that owns at least one cell), in token order,
@@ -287,9 +372,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="Syllables"/> and the per-cell targets. See <see cref="WordGroup"/>.
         /// </summary>
         public IReadOnlyList<WordGroup> Words { get; }
-
-        /// <summary>Per display cell, the index into <see cref="Syllables"/> or -1 (space cells; punctuation-only groups the default stream deleted).</summary>
-        private readonly int[] cellSyllable;
 
         /// <summary>Per display cell, the index into <see cref="Words"/> or -1 (space cells, and cells of a token the default stream deleted).</summary>
         private readonly int[] cellWord;
@@ -309,11 +391,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <paramref name="cellIndex"/>, or -1 when the cell is in no group (space cells, and any
         /// out-of-range index).
         /// </summary>
-        public int SyllableIndexOf(int cellIndex)
-            => cellIndex >= 0 && cellIndex < cellSyllable.Length ? cellSyllable[cellIndex] : -1;
-
-        /// <summary>Per display cell, whether it is a CHAR-TIMED STRETCH cell (see <see cref="IsCharTimedStretch"/>).</summary>
-        private readonly bool[] charTimedStretch;
+        public int SyllableIndexOf(int cellIndex) => AuthoredGrouping.IndexOf(cellIndex);
 
         /// <summary>
         /// Whether cell <paramref name="cellIndex"/> is a STRETCH cell (backlog 209): one whose
@@ -341,8 +419,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// change: these cells stay in their syllable, because the lyric stack lights GROUPS and an
         /// ungrouped stretch would stop being highlighted while it is sung.</para>
         /// </summary>
-        public bool IsCharTimedStretch(int cellIndex)
-            => cellIndex >= 0 && cellIndex < charTimedStretch.Length && charTimedStretch[cellIndex];
+        public bool IsCharTimedStretch(int cellIndex) => AuthoredGrouping.IsCharTimedStretch(cellIndex);
 
         /// <summary>
         /// Piecewise-linear anchor points for <see cref="SungPositionAt"/>:
@@ -351,17 +428,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private readonly List<(double time, double index)> sungPoints;
 
-        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGroup[] syllables, int[] cellSyllable, int[] syllableMarkerCells, WordGroup[] words, int[] cellWord, double lastUnitEnd,
+        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGrouping authored, SyllableGrouping natural, WordGroup[] words, int[] cellWord, double lastUnitEnd,
                            int[]? jamoHead = null)
         {
             Source = source;
             this.jamoHead = jamoHead;
-            Syllables = syllables;
-            SyllableMarkerCells = syllableMarkerCells;
-            this.cellSyllable = cellSyllable;
+            AuthoredGrouping = authored;
+            NaturalGrouping = natural.SameAs(authored) ? authored : natural;
             Words = words;
             this.cellWord = cellWord;
-            charTimedStretch = buildCharTimedStretch(cells, cellSyllable);
 
             var display = new System.Text.StringBuilder(cells.Count);
 
@@ -705,12 +780,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 break;
             }
 
-            var (syllables, cellSyllable, markerCells) = buildSyllables(line, tokens, cells, defaultSources, naturalSplits, rules.IsCell);
+            // BOTH groupings (backlog 363): the authored one every live run plays on, and the natural
+            // one a stored replay without the era bit re-derives on. Built here, at construction,
+            // because a replay's header frames arrive after the engine (and these lines) exist.
+            var authored = grouping(buildSyllables(line, tokens, cells, defaultSources, naturalSplits, rules.IsCell, authoredOnly: true), cells);
+            var natural = grouping(buildSyllables(line, tokens, cells, defaultSources, naturalSplits, rules.IsCell, authoredOnly: false), cells);
             var (words, cellWord) = buildWords(line, tokens, cells, defaultSources);
 
-            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), syllables, cellSyllable, markerCells, words, cellWord, lastUnitEnd,
+            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), authored, natural, words, cellWord, lastUnitEnd,
                 buildJamoHeads(cells, defaultSources, rawCluster));
         }
+
+        private static SyllableGrouping grouping((SyllableGroup[] groups, int[] cellSyllable, int[] markerCells) built, TypingCell[] cells)
+            => new SyllableGrouping(built.groups, built.cellSyllable, built.markerCells, buildCharTimedStretch(cells, built.cellSyllable));
 
         /// <summary>
         /// Per cell, the first cell of its hangul block (see <see cref="JamoBlockHead"/>), read off the
@@ -844,10 +926,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
-        /// Groups the line's cells into SYLLABLES (backlog 174): per whitespace token, the
-        /// <see cref="Syllabifier"/> decides WHICH characters form each syllable and the timing
+        /// Groups the line's cells into SYLLABLES (backlog 174): per whitespace token, the map's
+        /// authored subdivisions (or, on the stored-era natural grouping only, the
+        /// <see cref="Syllabifier"/>) decide WHICH characters form each syllable and the timing
         /// data decides WHEN it is sung. Pure derivation: no <see cref="TypingCell.TargetTime"/>
-        /// moves, the classic sweep and every readout built on it stay byte-identical.
+        /// moves, the classic sweep and every readout built on it stay byte-identical. Called twice
+        /// per line (backlog 363), once per grouping.
         ///
         /// <para>A token whose unit carries mapper subtimings
         /// (<see cref="TimedUnit.SyllableBoundaries"/>, N boundaries = N + 1 syllables) is split
@@ -857,13 +941,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// syllabifier degrades to G &lt; N + 1 groups (an over-forced short word) the first G - 1
         /// boundary times are the interior edges and the last group runs to the unit's EndTime.</para>
         ///
-        /// <para>A token WITHOUT subtimings is split naturally and each group's span is read off
-        /// the EXISTING flat-ramp char targets: it starts at its first cell's TargetTime and ends
-        /// where the next group starts (last group of the token: the unit's EndTime), so this case
-        /// is exactly "group the chars you already timed" and nothing moves.</para>
+        /// <para>A token WITHOUT subtimings (and without a usable pause) is, under
+        /// <paramref name="authoredOnly"/> (backlog 363, the live grouping), ONE group spanning the
+        /// unit's [StartTime, EndTime], the subtimed arm's own edge convention: only the mapper
+        /// subdivides, so the play judges, lights and marks exactly the word the editor shows.
+        /// Without it (the natural grouping a stored replay re-derives on) the token is split
+        /// naturally and each group's span is read off the EXISTING flat-ramp char targets: it
+        /// starts at its first cell's TargetTime and ends where the next group starts (last group
+        /// of the token: the unit's EndTime), so that case is exactly "group the chars you already
+        /// timed". Nothing moves a target under either.</para>
         ///
-        /// <para>That natural arm is GATED on <see cref="Syllabifier.IsSyllabifiable"/> (backlog
-        /// 178). A token that fails it, a stylised spelling like "wooooooords" or "ohhh", gets NO
+        /// <para>Both unsubdivided arms are GATED on <see cref="Syllabifier.IsSyllabifiable"/> (backlog
+        /// 178, kept by backlog 363's CHOICE A). A token that fails it, a stylised spelling like "wooooooords" or "ohhh", gets NO
         /// groups at all and its cells stay at <see cref="SyllableIndexOf"/> -1, because the
         /// rule-based syllabifier was built for real English and on those words invents boundaries
         /// it cannot defend. The consequences are both the ones wanted: an ungrouped cell keeps the
@@ -900,7 +989,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// "well-known" is one unit but two cell runs).</para>
         /// </summary>
         private static (SyllableGroup[] groups, int[] cellSyllable, int[] markerCells) buildSyllables(LyricLine line, string[] tokens, TypingCell[] cells, List<int>? defaultSources,
-                                                                                                    PolyglotLine.NaturalSplit?[]? naturalSplits = null, Func<char, bool>? isCell = null)
+                                                                                                    PolyglotLine.NaturalSplit?[]? naturalSplits = null, Func<char, bool>? isCell = null,
+                                                                                                    bool authoredOnly = true)
         {
             var units = line.Units;
             int[] rawGroup = new int[line.RawText.Length];
@@ -947,13 +1037,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 // A stylised spelling gets no groups at all UNLESS the mapper subtimed it, in which
                 // case the hand-authored count wins over anything the rules would have guessed.
+                // That gate holds under both groupings (backlog 363, CHOICE A).
                 if (token.Length > 0 && (subtimed || paused != null || naturallyGrouped))
                 {
+                    // An unsubdivided, unpaused word: under the authored grouping it is ONE group
+                    // over its unit (backlog 363), and so is a Polyglot word, whose carried split no
+                    // longer holds any cut of its own (see PolyglotLine). Only the stored-era natural
+                    // grouping still asks the English syllabifier.
+                    bool wholeUnit = !subtimed && paused == null && (authoredOnly || natural != null);
+
                     IReadOnlyList<int> splits = paused != null
                         ? paused.Splits
                         : subtimed
                             ? SyllableSegments.SplitsFor(token, boundaries.Count + 1, unit?.SyllableSplits)
-                            : natural?.Splits ?? Syllabifier.SplitPoints(token);
+                            : wholeUnit
+                                ? Array.Empty<int>()
+                                : Syllabifier.SplitPoints(token);
 
                     int groupBase = starts.Count;
                     int groupCount = splits.Count + 1;
@@ -975,6 +1074,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         {
                             starts.Add(g == 0 ? unitStart : boundaries[g - 1]);
                             ends.Add(g == groupCount - 1 ? unitEnd : boundaries[g]);
+                        }
+                        else if (wholeUnit)
+                        {
+                            // The one group of an unsubdivided word: the unit's own span.
+                            starts.Add(unitStart);
+                            ends.Add(unitEnd);
                         }
                         else
                         {

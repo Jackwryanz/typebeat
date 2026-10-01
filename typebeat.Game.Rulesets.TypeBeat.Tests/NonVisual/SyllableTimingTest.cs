@@ -90,9 +90,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static LyricBeatmap sayStylisedNow(params double[] stylisedBoundaries) => map(line("say wooooooords now", 1000, 60000, 5000,
             unit("say", 1000, 2000), unit("wooooooords", 2000, 4000, stylisedBoundaries), unit("now", 4000, 5000)));
 
-        private static TypingEngine started(LyricBeatmap beatmap, bool syllableTiming, bool firstCharTiming = false)
+        /// <summary>
+        /// A started engine. <paramref name="authoredSyllablesOnly"/> defaults to the bare engine's
+        /// own default, the STORED natural-grouping era (backlog 363), so every pin in this fixture
+        /// that does not pass it is a stored-era pin: it re-derives a replay recorded before 363,
+        /// whose unsubdivided words were cut by the syllabifier at gameplay.
+        /// </summary>
+        private static TypingEngine started(LyricBeatmap beatmap, bool syllableTiming, bool firstCharTiming = false, bool authoredSyllablesOnly = false)
         {
-            var engine = new TypingEngine(beatmap) { SyllableTiming = syllableTiming, FirstCharTiming = firstCharTiming };
+            var engine = new TypingEngine(beatmap) { SyllableTiming = syllableTiming, FirstCharTiming = firstCharTiming, AuthoredSyllablesOnly = authoredSyllablesOnly };
             engine.Update(1000);
             Assert.AreEqual(0, engine.ActiveLineIndex);
             return engine;
@@ -109,33 +115,90 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #region Syllable structure
 
+        /// <summary>
+        /// THE STORED-ERA PIN (backlog 363): with the era bit clear a word the mapper did not
+        /// subdivide is still cut by the syllabifier, bit for bit as it was before 363, so a replay
+        /// recorded then re-derives on exactly the groups it was played against.
+        /// </summary>
         [Test]
         public void NoSubtimingsGroupsTheCharsYouAlreadyTimed()
         {
-            var tl = TypingLine.FromLyricLine(openDoor().Lines[0]);
+            var line = TypingLine.FromLyricLine(openDoor().Lines[0]);
+            var tl = line.NaturalGrouping;
 
-            Assert.AreEqual(3, tl.Syllables.Count);
+            Assert.AreEqual(3, tl.Groups.Count);
 
             // Edges are asserted against the cells' OWN targets, not recomputed values: this case
             // is exactly "group the chars you already timed", so nothing may move.
-            Assert.AreEqual(new SyllableGroup(0, 1, tl.Cells[0].TargetTime, tl.Cells[1].TargetTime), tl.Syllables[0]);
-            Assert.AreEqual(new SyllableGroup(1, 4, tl.Cells[1].TargetTime, 2000), tl.Syllables[1]);
-            Assert.AreEqual(new SyllableGroup(5, 9, tl.Cells[5].TargetTime, 3000), tl.Syllables[2]);
+            Assert.AreEqual(new SyllableGroup(0, 1, line.Cells[0].TargetTime, line.Cells[1].TargetTime), tl.Groups[0]);
+            Assert.AreEqual(new SyllableGroup(1, 4, line.Cells[1].TargetTime, 2000), tl.Groups[1]);
+            Assert.AreEqual(new SyllableGroup(5, 9, line.Cells[5].TargetTime, 3000), tl.Groups[2]);
 
             // A syllable ending a word runs to the unit's end, which is also the space cell's target.
-            Assert.AreEqual(tl.Cells[4].TargetTime, tl.Syllables[1].EndTime, 1e-9);
+            Assert.AreEqual(line.Cells[4].TargetTime, tl.Groups[1].EndTime, 1e-9);
 
-            Assert.AreEqual(0, tl.SyllableIndexOf(0));
-            Assert.AreEqual(1, tl.SyllableIndexOf(1));
-            Assert.AreEqual(1, tl.SyllableIndexOf(3));
-            Assert.AreEqual(-1, tl.SyllableIndexOf(4), "the inter-word space cell is in no syllable");
-            Assert.AreEqual(2, tl.SyllableIndexOf(5));
-            Assert.AreEqual(2, tl.SyllableIndexOf(8));
-            Assert.AreEqual(-1, tl.SyllableIndexOf(-1));
-            Assert.AreEqual(-1, tl.SyllableIndexOf(9));
+            Assert.AreEqual(0, tl.IndexOf(0));
+            Assert.AreEqual(1, tl.IndexOf(1));
+            Assert.AreEqual(1, tl.IndexOf(3));
+            Assert.AreEqual(-1, tl.IndexOf(4), "the inter-word space cell is in no syllable");
+            Assert.AreEqual(2, tl.IndexOf(5));
+            Assert.AreEqual(2, tl.IndexOf(8));
+            Assert.AreEqual(-1, tl.IndexOf(-1));
+            Assert.AreEqual(-1, tl.IndexOf(9));
+            Assert.AreEqual(new[] { 1 }, tl.MarkerCells.ToArray());
+
+            assertLineInvariants(line);
+        }
+
+        /// <summary>
+        /// THE LIVE GROUPING (backlog 363): the same line with nothing subdivided is one group per
+        /// word, each spanning its own unit, so "open" is judged, lit and marked as the one word the
+        /// editor shows. The targets are the ones the stored era reads too: only the grouping moved.
+        /// </summary>
+        [Test]
+        public void AWordNobodySubdividedIsOneGroupOverItsUnit()
+        {
+            var tl = TypingLine.FromLyricLine(openDoor().Lines[0]);
+
+            Assert.AreEqual(new[] { new SyllableGroup(0, 4, 1000, 2000), new SyllableGroup(5, 9, 2000, 3000) }, tl.Syllables.ToArray());
+            Assert.AreEqual(0, tl.SyllableIndexOf(3));
+            Assert.AreEqual(-1, tl.SyllableIndexOf(4));
+            Assert.AreEqual(1, tl.SyllableIndexOf(5));
+            Assert.IsEmpty(tl.SyllableMarkerCells.ToArray());
+            Assert.AreEqual(new[] { 1000, 1250, 1500, 1750, 2000, 2000, 2250, 2500, 2750 }, tl.Cells.Select(c => c.TargetTime).ToArray());
 
             assertLineInvariants(tl);
             assertEveryTypeableCellIsGrouped(tl);
+        }
+
+        /// <summary>
+        /// The measured case the item was scoped on: "never" on [1000, 2000], nothing subdivided, all
+        /// five letters pressed at 1600 under the live flag set. Natural groups ne|ver: n Meh +600, e
+        /// Ok +200 (past the "ne" group's end at 1400), v Ok +200 (FirstCharTiming anchors it to the
+        /// invented "ver" group opening at 1400), e and r Great. One group: n Meh +600 (the first
+        /// char, anchored to the unit start), then four Greats. These are cross-checks worked out by
+        /// hand from the targets 1000/1200/1400/1600/1800.
+        /// </summary>
+        [TestCase(false, new[] { JudgementType.Meh, JudgementType.Ok, JudgementType.Ok, JudgementType.Great, JudgementType.Great }, new double[] { 600, 200, 200, 0, 0 })]
+        [TestCase(true, new[] { JudgementType.Meh, JudgementType.Great, JudgementType.Great, JudgementType.Great, JudgementType.Great }, new double[] { 600, 0, 0, 0, 0 })]
+        public void AnUnsubdividedWordIsJudgedOnItsEraGrouping(bool authoredSyllablesOnly, JudgementType[] types, double[] deltas)
+        {
+            var engine = new TypingEngine(map(line("never", 1000, 60000, 2000, unit("never", 1000, 2000))))
+            {
+                SyllableTiming = true,
+                CharTimedStretch = true,
+                FirstCharTiming = true,
+                AuthoredSyllablesOnly = authoredSyllablesOnly,
+            };
+
+            engine.Update(1000);
+            var judged = record(engine);
+
+            foreach (char c in "never")
+                Assert.IsTrue(engine.ProcessKey(c, 1600));
+
+            Assert.AreEqual(types, judged.Select(j => j.Type).ToArray());
+            Assert.AreEqual(deltas, judged.Select(j => j.Delta).ToArray());
         }
 
         [Test]
@@ -385,10 +448,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(6, engine.MaxCombo);
         }
 
+        /// <summary>
+        /// Both edges of a span pay 0. On an AUTHORED cut (backlog 363: the live grouping marks no
+        /// other), "o|pen" subdivided at 1250, so the edge under test is one the live engine has.
+        /// </summary>
         [Test]
         public void SpanEdgesAreInclusive()
         {
-            var engine = started(openDoor(), syllableTiming: true);
+            var authoredOpen = map(line("open door", 1000, 60000, 3000,
+                new TimedUnit { Text = "open", StartTime = 1000, EndTime = 2000, SyllableBoundaries = new[] { 1250.0 }, SyllableSplits = new[] { 1 } },
+                unit("door", 2000, 3000)));
+
+            var engine = started(authoredOpen, syllableTiming: true, authoredSyllablesOnly: true);
             var judged = record(engine);
 
             Assert.IsTrue(engine.ProcessKey('o', 1250)); // exactly ON the end edge of [1000, 1250]

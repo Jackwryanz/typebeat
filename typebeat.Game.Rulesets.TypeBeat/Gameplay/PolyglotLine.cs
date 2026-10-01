@@ -35,10 +35,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// subdivision (its cells spread evenly over the whole word). An authored PAUSE indexes the
     /// romanised text too and is not carried: a word played in its original sings through its
     /// rests.</item>
-    /// <item>NATURAL SYLLABLES (a word with no subdivision). The English syllabifier says nothing
-    /// about another script, so the romanised word's own natural syllables are carried back the same
-    /// way, falling back to one syllable per glyph; a stylised romanised word ("ohhh") keeps no
-    /// groups, as it has none without the mod.</item>
+    /// <item>A word with NO subdivision is ONE syllable over its span (backlog 363: only the mapper
+    /// subdivides, which is what the play does without the mod too). Nothing is carried for it and
+    /// nothing is cut per glyph, so a joined Japanese run is cut only at its authored subdivisions
+    /// and its word seams. A stylised romanised word ("ohhh") keeps no groups, as it has none
+    /// without the mod.</item>
     /// <item>LINE-GRANULARITY maps whose originals live on the LINE only
     /// (<see cref="LyricLine.Original"/>, no word carrying one): when the line original has exactly
     /// as many words as the line has units, word i plays over unit i; otherwise the whole original
@@ -52,7 +53,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     {
         /// <summary>
         /// A token's NATURAL split under Polyglot: <see cref="Splits"/> are the cut indices into the
-        /// token (empty for one syllable), or null for a token that has no groups at all.
+        /// token, or null for a token that has no groups at all. Since backlog 363 a split is always
+        /// EMPTY (one syllable over the word's span) or null: an unsubdivided word is never cut.
         /// </summary>
         public readonly record struct NaturalSplit(IReadOnlyList<int>? Splits);
 
@@ -327,26 +329,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         addBoundary(piece.Unit.StartTime, offset);
                 }
 
+                // Only an AUTHORED subdivision cuts inside a word (backlog 363); a word with none
+                // is one syllable, so the run is otherwise cut at its word seams alone.
                 if (piece.Unit.SyllableBoundaries.Count > 0)
                 {
                     IReadOnlyList<int> cuts = SyllableSegments.SplitsFor(piece.Unit);
 
                     for (int j = 0; j < cuts.Count && j < piece.Unit.SyllableBoundaries.Count; j++)
                         addBoundary(piece.Unit.SyllableBoundaries[j], offset + cuts[j]);
-                }
-                else if (piece.Natural is NaturalSplit natural && natural.Splits != null)
-                {
-                    int cells = piece.Text.Count(Typeability.IsPolyglotTypeCell);
-
-                    foreach (int cut in natural.Splits)
-                    {
-                        if (cells == 0)
-                            break;
-
-                        int before = piece.Text.Take(cut).Count(Typeability.IsPolyglotTypeCell);
-                        double time = piece.Unit.StartTime + (piece.Unit.EndTime - piece.Unit.StartTime) * before / cells;
-                        addBoundary(time, offset + cut);
-                    }
                 }
 
                 offset += piece.Text.Length;
@@ -402,18 +392,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             NaturalSplit? natural = null;
 
+            // A word with no subdivision is ONE syllable over its span (backlog 363): the romanised
+            // word's automatic split is no longer carried and the per-glyph fallback is gone. A
+            // stylised romanised word still has no groups at all, as it has none without the mod.
             if (boundaries.Count == 0)
             {
-                if (source != null && carryCuts && !Syllabifier.IsSyllabifiable(source.Text))
-                    natural = new NaturalSplit(null);
-                else
-                {
-                    int[]? carried = carryCuts && source != null
-                        ? carry(Syllabifier.SplitPoints(source.Text), source.Text, nfc, text, sourceIndex, language)
-                        : null;
-
-                    natural = new NaturalSplit(carried ?? glyphs.Skip(1).ToArray());
-                }
+                natural = source != null && carryCuts && !Syllabifier.IsSyllabifiable(source.Text)
+                    ? new NaturalSplit(null)
+                    : new NaturalSplit(Array.Empty<int>());
             }
 
             var unit = new TimedUnit

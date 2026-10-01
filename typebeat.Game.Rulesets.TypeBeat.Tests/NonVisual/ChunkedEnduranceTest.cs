@@ -206,15 +206,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // plain play's rating. It moved on 2026-09-20 with the LAYOUT (sr-config.json selecting the
             // overlapping profile, see the port's own pin above) and again on 2026-09-22 with the DIALS
             // (the active snapshot's anchor, character floor and chunk length terms), so the figures
-            // before those moves were 5.3281973709372954 and 5.4530884437856484.
-            Assert.That(LyricDifficulty.Compute(lines), Is.EqualTo(5.284047654634864).Within(1e-12));
+            // before those moves were 5.3281973709372954 and 5.4530884437856484. It moved again on
+            // 2026-10-01 (backlog 363) when an unsubdivided word became ONE judgement segment rather
+            // than a vowel-run count ("quick", "over", ...), from 5.284047654634864.
+            Assert.That(LyricDifficulty.Compute(lines), Is.EqualTo(5.2715754729166084).Within(1e-12));
 
             // THE SAME FIXTURE WITHOUT THE INDEX, which is the reading the sandbox produces for it: the
             // lab's typability bundle carries no scores for this text, so the typability-free arm is
             // the one the two sides can be compared on, and it is the second map the port is pinned
             // against (the first being TheOverlappingAxisMatchesTheSandboxOnASyntheticMap).
             ChunkedEndurance.Report bare = LyricDifficulty.RateChunked(lines, 1, false, LyricDifficulty.NoScores, ChunkedEndurance.Live).Report;
-            Assert.That(bare.Stars, Is.EqualTo(5.3345735594994945).Within(1e-9), "sandbox: the same map with no typability behind it");
+            // Backlog 363 moved it with the figure above (an unsubdivided word is one judgement window
+            // now), from the sandbox's own 5.3345735594994945: the sandbox still cuts such a word at a
+            // vowel-run count, so it matches again once its syllable model follows the engine's.
+            Assert.That(bare.Stars, Is.EqualTo(5.32198211915449).Within(1e-9), "the same map with no typability behind it");
         }
     }
 }

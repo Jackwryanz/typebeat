@@ -208,6 +208,61 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// Backlog 363: a word with NO subdivision plays its original as ONE syllable over its span.
+        /// The romanised word's automatic split ("Pri|vet") is no longer carried onto the original and
+        /// there is no one-group-per-glyph fallback, so nothing is marked; Polyglot carries no era, so
+        /// both groupings are the one.
+        /// </summary>
+        [Test]
+        public void AnUnsubdividedWordPlaysItsOriginalAsOneSyllable()
+        {
+            Assert.That(Syllabifier.SplitPoints("Privet"), Is.Not.Empty, "the romanised word would have been split");
+
+            var cells = polyglot(privetMir(), language: "russian");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells.Syllables.Select(s => (s.StartCell, s.EndCellExclusive, s.StartTime, s.EndTime)),
+                    Is.EqualTo(new[] { (0, 6, 1000.0, 2000.0), (7, 10, 2500.0, 3000.0) }));
+                Assert.That(cells.SyllableMarkerCells, Is.Empty);
+                Assert.That(cells.NaturalGrouping, Is.SameAs(cells.AuthoredGrouping));
+            });
+        }
+
+        /// <summary>
+        /// A joined Japanese run is cut only where something was AUTHORED: its word seams (and the
+        /// words' own subdivisions, see <see cref="RomanisedCutsCarryBackThroughTheRomanisersUnits"/>).
+        /// Two unsubdivided words meet at one boundary, the seam, where they used to carry every natural
+        /// cut of both romanisations in as timed boundaries that moved the targets.
+        /// </summary>
+        [Test]
+        public void AJoinedJapaneseRunIsCutOnlyAtItsSeams()
+        {
+            var l = new LyricLine
+            {
+                RawText = "konnichiha sekai",
+                StartTime = 0,
+                EndTime = 6000,
+                SingEndTime = 3000,
+                Original = "こんにちはせかい",
+                Units = new[] { unit("konnichiha", 1000, 2000, "こんにちは"), unit("sekai", 2000, 3000, "せかい") },
+            };
+
+            var cells = polyglot(l, language: "japanese");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(display(cells), Is.EqualTo("こんにちはせかい"), "joined: no typed space");
+                Assert.That(cells.Source.Units.Single().SyllableBoundaries, Is.EqualTo(new[] { 2000.0 }), "the seam alone");
+                Assert.That(cells.Source.Units.Single().SyllableSplits, Is.EqualTo(new[] { 5 }));
+                Assert.That(cells.Syllables.Select(s => (s.StartCell, s.EndCellExclusive, s.StartTime, s.EndTime)),
+                    Is.EqualTo(new[] { (0, 5, 1000.0, 2000.0), (5, 8, 2000.0, 3000.0) }));
+                Assert.That(cells.Cells.Select(c => c.TargetTime), Is.EqualTo(new[] { 1000.0, 1200, 1400, 1600, 1800, 2000, 2000 + 1000.0 / 3, 2000 + 2000.0 / 3 }).Within(1e-9),
+                    "each word spread over its own span, nothing re-cut inside either");
+            });
+        }
+
         [Test]
         public void ACyrillicCutLandsOnTheLetterItOpens()
         {

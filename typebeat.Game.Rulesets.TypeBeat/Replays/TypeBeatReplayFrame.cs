@@ -158,6 +158,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <para>Applied exactly like bit 0: <c>ReplayEngineFeed.Apply</c> clears it on the CONFIG frame
     /// and sets it from the extended one, before the first keystroke it could move.</para>
     ///
+    /// <para><b>Second word, bit 2 (value 4): <see cref="AuthoredSyllablesOnly"/> (backlog 363).</b>
+    /// Only the MAPPER subdivides a word. With it set (every new live run) a word with no authored
+    /// syllable boundary and no usable pause is ONE syllable group spanning its whole unit, so it is
+    /// judged, lit, marked and paced as the editor shows it; a stylised spelling
+    /// (<c>Syllabifier.IsSyllabifiable</c> false) stays ungrouped and point-judged exactly as
+    /// before. With it clear (every replay stored before it) the engine's automatic syllabifier
+    /// cuts such a word at gameplay into the natural groups it was played against, spans read off
+    /// the flat-ramp targets. No target moves under either arm: only which cells share a span, which
+    /// cell the <c>FirstCharTiming</c> anchor applies to, and the stretch runs derived from the
+    /// groups. <c>TypingLine</c> carries both groupings, because its groups are built at engine
+    /// construction, before any header frame, and the watch path attaches a replay to an engine
+    /// that already exists; the engine flag selects which one judgement, the lyric display and the
+    /// pace bands read. Applied like bits 0 and 1.</para>
+    ///
     /// <para><b>The WALL-CLOCK axis (bit 9, backlog 256).</b> Ordinarily a frame's time is a lyric
     /// time and can be fed to the engine as it stands. Under the Puppeteer mod the song's position
     /// is a FUNCTION of the typing, so the lyric time of a keystroke is an OUTPUT of the model
@@ -495,6 +509,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool InputEra2;
 
         /// <summary>
+        /// Whether the run was played with AUTHORED SYLLABLES ONLY (see
+        /// <see cref="Gameplay.TypingEngine.AuthoredSyllablesOnly"/>, backlog 363): a word the mapper
+        /// did not subdivide was one syllable group over its unit, not the automatic syllabifier's
+        /// natural groups. Only meaningful on <see cref="CONFIG_EXTENDED"/> frames, where it is bit 2
+        /// (value 4) of the SECOND flags word. The live client records it true for every stack; a
+        /// replay stored before it reads false and re-derives under the natural groups it was played
+        /// against.
+        /// </summary>
+        public bool AuthoredSyllablesOnly;
+
+        /// <summary>
         /// The ANCHOR carried by a bit-9 CONFIG frame: the track position the tape was started at,
         /// which is also the origin of the wall axis every other frame in the run is stamped on. It
         /// is simply this frame's own <see cref="ReplayFrame.Time"/>, named here because that is a
@@ -576,10 +601,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// Parameters are append-only and named, as <see cref="CreateConfigFrame"/>'s are; each one
         /// defaults to clear, which is what a replay with no extended frame decodes to.
         /// </summary>
-        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
+        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
         {
             RushCapCostsAccuracy = rushCapCostsAccuracy,
             InputEra2 = inputEra2,
+            AuthoredSyllablesOnly = authoredSyllablesOnly,
         };
 
         /// <summary>Bit 0 of the EXTENDED CONFIG frame's (second) flags word: an over-cap press was
@@ -590,6 +616,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <summary>Bit 1 of the EXTENDED CONFIG frame's (second) flags word: the run was played in the
         /// second input era (see <see cref="InputEra2"/>).</summary>
         private const int ext_flag_input_era_2 = 2;
+
+        /// <summary>Bit 2 of the EXTENDED CONFIG frame's (second) flags word: only authored syllable
+        /// boundaries split a word (see <see cref="AuthoredSyllablesOnly"/>, backlog 363).</summary>
+        private const int ext_flag_authored_syllables_only = 4;
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
         private const int flag_allow_wrong_input = 1;
@@ -676,6 +706,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             {
                 RushCapCostsAccuracy = (flags & ext_flag_rush_cap_costs_accuracy) != 0;
                 InputEra2 = (flags & ext_flag_input_era_2) != 0;
+                AuthoredSyllablesOnly = (flags & ext_flag_authored_syllables_only) != 0;
                 return;
             }
 
@@ -703,7 +734,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
         private int extendedConfigFlags() =>
             (RushCapCostsAccuracy ? ext_flag_rush_cap_costs_accuracy : 0)
-            | (InputEra2 ? ext_flag_input_era_2 : 0);
+            | (InputEra2 ? ext_flag_input_era_2 : 0)
+            | (AuthoredSyllablesOnly ? ext_flag_authored_syllables_only : 0);
 
         private int configFlags() =>
             (AllowWrongInput ? flag_allow_wrong_input : 0)

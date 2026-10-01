@@ -152,7 +152,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
         /// <summary>
         /// Whether a word shows a tiny triangle in the inter-character gap at each of its
-        /// interior syllable boundaries, including automatically derived ones. ON by default:
+        /// interior syllable boundaries. Since backlog 363 every such boundary is one the map
+        /// carries (the mapper's own, or one the import pass wrote): a word nobody subdivided is
+        /// one syllable and shows none. ON by default:
         /// since backlog 179 a keypress inside a syllable is
         /// judged against that syllable's sung SPAN, so the subdivision is already something the
         /// player is being asked to pace to, and the mark is how they see it coming instead of
@@ -162,7 +164,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// decides nothing about judgement, scoring, the replay or the wire, so it binds straight to
         /// the lyric displays and never reaches the replay CONFIG frame. The cells it draws at come
         /// from <see cref="Gameplay.TypingLine.SyllableMarkerCells"/>, derived with the judgement
-        /// groups themselves, so the mark cannot disagree with what is being judged.</para>
+        /// groups themselves, so the mark cannot disagree with what is being judged (a replay that
+        /// predates backlog 363 plays back on, and so marks, the natural grouping instead).</para>
         /// </summary>
         ShowSyllableMarkers,
 

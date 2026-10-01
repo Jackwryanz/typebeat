@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Import;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -48,8 +49,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(lines[0].StartTime, Is.EqualTo(1000));
                 Assert.That(lines[1].StartTime, Is.EqualTo(3500));
 
-                // No word timing from LRC: one whole-line unit each => Line granularity.
-                Assert.That(TypeBeatEditorOperations.InferGranularity(lines), Is.EqualTo(TimingGranularity.Line));
+                // No word timing from LRC, but since backlog 363 (CHOICE B) the import syllabifies
+                // it: "hello" carries its natural hel|lo as an authored subdivision, which moves the
+                // map to Syllable granularity, and the one-syllable words stay undivided.
+                Assert.That(lines[0].Units[0].SyllableSplits, Is.EqualTo(Syllabifier.SplitPoints("hello")));
+                Assert.That(lines[0].Units[1].SyllableBoundaries, Is.Empty, "world is one syllable");
+                Assert.That(TypeBeatEditorOperations.InferGranularity(lines), Is.EqualTo(TimingGranularity.Syllable));
             }
             finally
             {

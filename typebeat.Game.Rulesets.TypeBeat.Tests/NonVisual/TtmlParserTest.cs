@@ -270,20 +270,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(TypeBeatEditorOperations.InferGranularity(lines), Is.EqualTo(TimingGranularity.Syllable));
         }
 
+        /// <summary>
+        /// A line-timed TTML states no word times, so its words are interpolated exactly as an
+        /// LRC's are, and since backlog 363 (CHOICE B) the import syllabifies them the same way: a
+        /// line with a polysyllabic word writes words[] with that word's natural syllables, which
+        /// moves the map to Syllable granularity. The interpolated word spans themselves are what
+        /// the line-shaped document would have decoded to.
+        /// </summary>
         [Test]
-        public void LineTimedTtmlSynthesizesALineGranularityDocument()
+        public void LineTimedTtmlIsSyllabifiedLikeAnLrc()
         {
             string? timing = LyricMapImporter.SynthesizeTimingJsonFromTtml(line_timed);
             Assert.That(timing, Is.Not.Null);
             Assert.That(TimingJsonLoader.TryParse(timing!, out IReadOnlyList<LyricLine> lines), Is.True);
+            Assert.That(TtmlParser.TryParseRaw(line_timed, out IReadOnlyList<LyricLine> raw, out _), Is.True);
 
-            // The document states no word times, so none are invented: the stored document has line
-            // stamps only, and the loader interpolates the words the same way it does for an LRC.
-            Assert.That(TypeBeatEditorOperations.InferGranularity(lines), Is.EqualTo(TimingGranularity.Line));
             Assert.That(lines[0].Units.Count, Is.EqualTo(10));
+            Assert.That(lines[0].Units.Select(u => (u.StartTime, u.EndTime)), Is.EqualTo(raw[0].Units.Select(u => (u.StartTime, u.EndTime))));
 
-            using var document = JsonDocument.Parse(timing!);
-            Assert.That(document.RootElement.GetProperty("lines")[0].TryGetProperty("words", out _), Is.False);
+            bool anySubdivided = lines.Any(l => l.Units.Any(u => u.SyllableBoundaries.Count > 0));
+            Assert.That(anySubdivided, Is.True, "the fixture has a polysyllabic word");
+            Assert.That(TypeBeatEditorOperations.InferGranularity(lines), Is.EqualTo(TimingGranularity.Syllable));
+
+            foreach (var unit in lines.SelectMany(l => l.Units))
+            {
+                var expected = ImportSyllables.NaturalSubdivision(unit.Text, unit.StartTime, unit.EndTime);
+                Assert.That(unit.SyllableSplits, Is.EqualTo(expected?.Splits ?? Array.Empty<int>()), unit.Text);
+            }
         }
 
         [Test]

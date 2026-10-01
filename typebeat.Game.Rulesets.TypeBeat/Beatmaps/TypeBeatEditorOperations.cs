@@ -1464,8 +1464,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // mapper moved a divider to exactly where the syllabifier would have put it: "mul|ti|plying"
             // out of "mul|tiply|ing") is NOT the same cut, and treating it as such would throw the edit
             // away and snap the characters back to the syllabifier's own division.
+            // A word that already CARRIES a split keeps it explicit too (backlog 363, CHOICE C).
             var stored = splits.Count == 0 || !SyllableSegments.IsAuthoredValid(token, segments, splits)
-                         || (unit.Pauses.Count == 0 && sameSplits(splits, SyllableSegments.Derived(token, segments)))
+                         || (unit.Pauses.Count == 0 && !carriesSplit(unit) && sameSplits(splits, SyllableSegments.Derived(token, segments)))
                 ? Array.Empty<int>()
                 : splits.ToArray();
 
@@ -1528,10 +1529,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (!SyllableSegments.IsAuthoredValid(token, segments, target))
                 return current;
 
-            // Landing exactly on the derived split stays DERIVED: the result is identical and the
-            // map keeps no split_chars it does not need.
-            return sameSplits(target, SyllableSegments.Derived(token, segments)) ? Array.Empty<int>() : target;
+            // Landing exactly on the derived split stays DERIVED, but only for a word that carried no
+            // split of its own (backlog 363, CHOICE C): the import pass writes its natural split
+            // explicitly, and that split is what puts the word's characters on its own syllables, so
+            // the commit that runs for every subdivided word of a line must not fold it away and
+            // retime the word to the even spread. A newly typed split on a word that had none is
+            // canonicalised as before.
+            return !carriesSplit(token, segments, current) && sameSplits(target, SyllableSegments.Derived(token, segments)) ? Array.Empty<int>() : target;
         }
+
+        /// <summary>
+        /// Whether <paramref name="splits"/> is a split the word already CARRIES: a non-empty, valid
+        /// authored split of <paramref name="token"/> into <paramref name="segments"/> (backlog 363).
+        /// Such a split is kept by every editor canonicaliser even when it equals the derived one,
+        /// because the import pass writes exactly that and the play reads it.
+        /// </summary>
+        private static bool carriesSplit(string token, int segments, IReadOnlyList<int> splits)
+            => splits.Count > 0 && SyllableSegments.IsAuthoredValid(token, segments, splits);
+
+        /// <summary>Whether <paramref name="unit"/> carries a split of its own (see <see cref="carriesSplit(string, int, IReadOnlyList{int})"/>).</summary>
+        private static bool carriesSplit(TimedUnit unit)
+            => carriesSplit(unit.Text, unit.SyllableBoundaries.Count + 1, unit.SyllableSplits);
 
         private static bool sameSplits(IReadOnlyList<int> a, IReadOnlyList<int> b)
         {
@@ -1893,7 +1911,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Confidence = unit.Confidence,
                 // Both of these are left of the cut, so neither index moves.
                 SyllableBoundaries = unit.SyllableBoundaries.Take(boundaryIndex).ToArray(),
-                SyllableSplits = carriedSplits(firstText, splits, 0, boundaryIndex, 0, firstPauses.Count > 0),
+                SyllableSplits = carriedSplits(firstText, splits, 0, boundaryIndex, 0, firstPauses.Count > 0 || carriesSplit(unit)),
                 Pauses = Gameplay.PausedWord.UsableRests(firstText, unit.StartTime, boundary, firstPauses),
             };
 
@@ -1907,7 +1925,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 SyllableBoundaries = unit.SyllableBoundaries.Skip(boundaryIndex + 1).ToArray(),
                 // This word's cuts are indices into ITS OWN token, so each shifts down by the
                 // characters the first word took.
-                SyllableSplits = carriedSplits(secondText, splits, boundaryIndex + 1, splits.Count, cut, secondPauses.Count > 0),
+                SyllableSplits = carriedSplits(secondText, splits, boundaryIndex + 1, splits.Count, cut, secondPauses.Count > 0 || carriesSplit(unit)),
                 Pauses = Gameplay.PausedWord.UsableRests(secondText, boundary, unit.EndTime, secondPauses),
             });
 
@@ -1940,7 +1958,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// pinning it; anything else falls back to derived rather than carrying an index that could
         /// re-cut the word.
         /// </summary>
-        private static IReadOnlyList<int> carriedSplits(string token, IReadOnlyList<int> splits, int from, int to, int shift, bool carriesRests = false)
+        private static IReadOnlyList<int> carriedSplits(string token, IReadOnlyList<int> splits, int from, int to, int shift, bool keepDerived = false)
         {
             if (to <= from)
                 return Array.Empty<int>();
@@ -1954,7 +1972,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             // As in the pipe commit, a half that carries a rest keeps its cuts rather than folding them
             // into "derived": its spread is derived per stretch, not from the syllabifier's whole-word answer.
-            bool derived = !carriesRests && sameSplits(kept, SyllableSegments.Derived(token, segments));
+            // So does a half of a word that CARRIED its split (backlog 363, CHOICE C), which is what
+            // the import pass writes and what puts its characters on their own syllables.
+            bool derived = !keepDerived && sameSplits(kept, SyllableSegments.Derived(token, segments));
 
             return SyllableSegments.IsAuthoredValid(token, segments, kept) && !derived
                 ? kept
@@ -2523,7 +2543,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             // The same rule the pipe commit follows: a word carrying rests keeps every cut it is given,
             // because the spread its stretches derive is not the syllabifier's whole-word answer.
-            var stored = unit.Pauses.Count == 0 && sameSplits(splits, SyllableSegments.Derived(unit.Text, segments))
+            // And a word that already CARRIES a split keeps it explicit (backlog 363, CHOICE C): only a
+            // word whose split was derived until now folds a derived-equal result back to derived.
+            var stored = unit.Pauses.Count == 0 && !carriesSplit(unit) && sameSplits(splits, SyllableSegments.Derived(unit.Text, segments))
                 ? Array.Empty<int>()
                 : splits.ToArray();
 
