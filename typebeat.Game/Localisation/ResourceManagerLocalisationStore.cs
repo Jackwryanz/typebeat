@@ -72,7 +72,7 @@ namespace typebeat.Game.Localisation
 
                 try
                 {
-                    return manager.GetString(key, EffectiveCulture);
+                    return Rebrand(manager.GetString(key, EffectiveCulture));
                 }
                 catch (MissingManifestResourceException)
                 {
@@ -81,6 +81,39 @@ namespace typebeat.Game.Localisation
                     return null;
                 }
             }
+        }
+
+        /// <summary>
+        /// The upstream brand as it appears in the translated strings.
+        /// </summary>
+        public const string UPSTREAM_BRAND = @"osu!";
+
+        /// <summary>
+        /// Our brand, the same word the English fallbacks in this folder were renamed to.
+        /// </summary>
+        public const string BRAND = @"type!beat";
+
+        /// <summary>
+        /// Every non-English string comes from the satellite assemblies of the resources package,
+        /// which are upstream's translations and still say "osu!". Only the English fallbacks in the
+        /// <c>*Strings.cs</c> files were renamed, so a translated UI would otherwise carry the upstream
+        /// brand on hundreds of strings. The rewrite happens here, once, where translations are read.
+        /// <para>
+        /// Every occurrence is rewritten, compounds included (osu!stable, osu!direct, osu!lazer,
+        /// osu!supporter, osu!store): the English fallbacks keep none of them, they were renamed the
+        /// same way ("type!beatstable", "type!beatsupporter"), so a translation now reads exactly as the
+        /// English it translates. The match is case-insensitive because a few translations capitalise
+        /// the brand at the start of a sentence ("Osu!"), and it ignores what follows, because many
+        /// languages inflect the brand in place ("osu!n", "osu!-Installation") or run it straight into
+        /// the next word (CJK), and a "standing alone" rule would leave those saying osu!.
+        /// </para>
+        /// </summary>
+        public static string Rebrand(string translated)
+        {
+            if (string.IsNullOrEmpty(translated))
+                return translated;
+
+            return translated.Replace(UPSTREAM_BRAND, BRAND, StringComparison.OrdinalIgnoreCase);
         }
 
         public Task<string> GetAsync(string lookup, CancellationToken cancellationToken = default)
