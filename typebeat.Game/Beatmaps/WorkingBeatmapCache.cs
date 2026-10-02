@@ -309,6 +309,15 @@ namespace typebeat.Game.Beatmaps
                 return resources.Tracks.Get(fileStorePath);
             }
 
+            /// <summary>
+            /// The file store path of the audio file: it is named by the file's hash, so it changes whenever
+            /// the data does, including when a swap replaces the audio under the same filename.
+            /// </summary>
+            protected override string WaveformSource
+                => string.IsNullOrEmpty(Metadata?.AudioFile) || Metadata.AudioFile == virtual_track_filename
+                    ? null
+                    : BeatmapSetInfo.GetPathForFile(Metadata.AudioFile);
+
             protected override Waveform GetWaveform()
             {
                 if (string.IsNullOrEmpty(Metadata?.AudioFile))
