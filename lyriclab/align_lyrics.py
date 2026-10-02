@@ -36,6 +36,8 @@ Pipeline:
        --vocal-mode estimated (version 7, a stamped file only, chosen per song)
                        no acoustic path: every line paced evenly from its
                        stamp plus the song's stamp lead
+       (version 8)     the demucs child runs with PYTHONUTF8/PYTHONIOENCODING set, so a
+                       non-Latin song title no longer kills the separation on Windows
   7. char spans -> syllables (authored hyphens first, else pyphen + naive
      fallback) -> words -> lines; end times extended through sustained
      voiced audio (RMS gate); a validator repairs/rejects impossible output
@@ -230,7 +232,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 
 # Bumped when the output of the same inputs changes. The game compares the shipped copy's
 # version with the installed one and offers a reinstall; `--version` prints it.
-ALIGNER_VERSION = "7"
+ALIGNER_VERSION = "8"
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 320          # wav2vec2 stride: 20 ms at 16 kHz
@@ -661,6 +663,12 @@ def separate_vocals(song_wav: Path, work: Path, model: str, device: str,
     env = dict(os.environ)
     env["OMP_NUM_THREADS"] = str(threads)
     env["MKL_NUM_THREADS"] = str(threads)
+    # demucs prints the track path ("Separating track ...") through the child's own stdout,
+    # which on Windows defaults to the console code page (cp1252) and raises UnicodeEncodeError
+    # on a Japanese or Chinese title, killing the separation before it starts. The game sets
+    # these for the whole run too; repeated here so a direct invocation behaves the same.
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     subprocess.run(
         [sys.executable, "-m", "demucs.separate", "--two-stems", "vocals",
          "-n", model, "-d", device, "-o", str(work), str(song_wav)],

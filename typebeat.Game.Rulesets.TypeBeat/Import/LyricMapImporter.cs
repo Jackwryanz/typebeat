@@ -205,6 +205,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 CreateNoWindow = true,
             };
 
+            RunPythonInUtf8(psi);
             psi.ArgumentList.Add("-c");
             psi.ArgumentList.Add($"import {ALIGNER_IMPORTS}");
 
@@ -294,6 +295,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Every python we launch (the aligner, the import probe, the setup script's children) runs
+        /// in UTF-8. Python on Windows otherwise writes stdout in the console code page, cp1252 on a
+        /// Western install, and the first non-Latin character it prints raises UnicodeEncodeError:
+        /// demucs prints "Separating track {path}", so a Japanese or Chinese song title killed the
+        /// separation before it started and the import reported the aligner as unavailable (a user
+        /// log, 2026-10-02). PYTHONUTF8 covers the child processes python spawns too, which is where
+        /// demucs runs; the reader encodings match so the log tail is readable rather than mojibake.
+        /// Set only on a redirected start info (the encodings are invalid otherwise).
+        /// </summary>
+        public static void RunPythonInUtf8(ProcessStartInfo psi)
+        {
+            psi.Environment["PYTHONUTF8"] = "1";
+            psi.Environment["PYTHONIOENCODING"] = "utf-8";
+            psi.StandardOutputEncoding = Encoding.UTF8;
+            psi.StandardErrorEncoding = Encoding.UTF8;
         }
 
         public static string PythonExeFor(string lyricLabDir)
@@ -396,6 +415,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
+            RunPythonInUtf8(psi);
 
             if (OperatingSystem.IsWindows())
             {
@@ -791,6 +811,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     return (LyricImportResult.Fail("import cancelled"), null);
             }
 
+            string? alignerFailure = null;
+
             if (alignerUsable)
             {
                 string lyricsTemp = Path.Combine(Path.GetTempPath(), "typebeat_align", Guid.NewGuid().ToString("N") + ".txt");
@@ -811,6 +833,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     if (token.IsCancellationRequested)
                         return (alignerResult, null);
 
+                    alignerFailure = alignerResult.Error;
                     progress($"aligner unavailable ({alignerResult.Error}), trying next option");
                 }
                 finally
@@ -836,20 +859,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             // lines. It no longer offers signing in, which bought alignment and now buys nothing.
             if (!HasLineStamps(lyricsContent))
             {
-                return (LyricImportResult.Fail(
-                    (HasAnyLineStamp(lyricsContent)
-                        ? "no auto-aligner is available and only some lines have [mm:ss.xx] timestamps, "
-                          + "so the unstamped ones have no time to fall back on. "
-                        : "no auto-aligner is available and the lyrics have no [mm:ss.xx] line timestamps "
-                          + "to fall back on. ")
-                    + (needsRepair
-                        ? "The local auto-aligner's install is incomplete: repair it (Settings > Experimental > "
-                          + "Repair local auto-aligner), or add [mm:ss.xx] line stamps to the lyrics."
-                        : "Install the local auto-aligner (Settings > Experimental > "
-                          + "Install the local auto-aligner), or add [mm:ss.xx] line stamps to the lyrics.")), null);
+                return (LyricImportResult.Fail(NoFallbackFailureMessage(HasAnyLineStamp(lyricsContent), needsRepair, alignerFailure)), null);
             }
 
             return synthesizeFromLrc(lyricsContent, progress, language);
+        }
+
+        /// <summary>
+        /// The failure shown when no word timing could be produced and the lyrics carry no line
+        /// stamps to fall back on. Three situations, three different next steps, so the sentence
+        /// names the one that applies: the aligner is not installed (install it), its install is
+        /// broken (repair it), or it IS installed and its run failed (retry, then repair and send the
+        /// log). The third used to read as the first, telling a player with a working install to
+        /// install it, which is the message that sent the 2026-10-02 log in.
+        /// </summary>
+        /// <param name="partialStamps">Some lines are stamped, so only the unstamped ones lack a time.</param>
+        /// <param name="needsRepair">The install is present but demonstrably incomplete.</param>
+        /// <param name="alignerFailure">The aligner's own error when it ran and exited non-zero; null when it never ran.</param>
+        public static string NoFallbackFailureMessage(bool partialStamps, bool needsRepair, string? alignerFailure)
+        {
+            string stamps = partialStamps
+                ? "only some lines have [mm:ss.xx] timestamps, so the unstamped ones have no time to fall back on. "
+                : "the lyrics have no [mm:ss.xx] line timestamps to fall back on. ";
+
+            if (alignerFailure != null)
+            {
+                return $"the local auto-aligner is installed but its run failed ({ShortAlignerFailure(alignerFailure)}), and {stamps}"
+                       + "Try the import again; if it keeps failing, repair the aligner (Settings > Experimental > "
+                       + "Repair local auto-aligner) and share the import log, or add [mm:ss.xx] line stamps to the lyrics.";
+            }
+
+            return "no auto-aligner is available and " + stamps
+                   + (needsRepair
+                       ? "The local auto-aligner's install is incomplete: repair it (Settings > Experimental > "
+                         + "Repair local auto-aligner), or add [mm:ss.xx] line stamps to the lyrics."
+                       : "Install the local auto-aligner (Settings > Experimental > "
+                         + "Install the local auto-aligner), or add [mm:ss.xx] line stamps to the lyrics.");
+        }
+
+        /// <summary>
+        /// The aligner's error for the sentence above: its tail is up to eight lines joined by " | ",
+        /// and the last of them is the exception that stopped it, which is the one worth reading.
+        /// Capped so a long path does not swallow the advice that follows.
+        /// </summary>
+        public static string ShortAlignerFailure(string error)
+        {
+            string last = error.Split(" | ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? error.Trim();
+            return last.Length <= 160 ? last : last[..157] + "...";
         }
 
         /// <summary>Line-granularity timing straight from [mm:ss.xx] line stamps (no word timing).</summary>
@@ -1049,6 +1105,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string venvBin = Path.GetDirectoryName(python)!;
             string existingPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
             psi.Environment["PATH"] = venvBin + Path.PathSeparator + existingPath;
+            RunPythonInUtf8(psi);
 
             foreach (string arg in AlignerArguments(lyricLabDir, audioPath, lyricsPath, outDir, lyricsContent, highQuality, vocalMode))
                 psi.ArgumentList.Add(arg);

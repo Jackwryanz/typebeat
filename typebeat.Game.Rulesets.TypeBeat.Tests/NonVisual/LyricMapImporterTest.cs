@@ -1480,6 +1480,78 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return reader.ReadToEnd();
         }
 
+        /// <summary>
+        /// A user log (2026-10-02): demucs died with UnicodeEncodeError printing a Japanese track path
+        /// through a cp1252 stdout, and the import called the aligner unavailable. Every python we
+        /// start now runs in UTF-8, children included, and the log reader decodes it as such.
+        /// </summary>
+        [Test]
+        public void PythonProcessesRunInUtf8()
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+
+            LyricMapImporter.RunPythonInUtf8(psi);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(psi.Environment["PYTHONUTF8"], Is.EqualTo("1"), "covers the demucs child python spawns");
+                Assert.That(psi.Environment["PYTHONIOENCODING"], Is.EqualTo("utf-8"));
+                Assert.That(psi.StandardOutputEncoding, Is.EqualTo(Encoding.UTF8));
+                Assert.That(psi.StandardErrorEncoding, Is.EqualTo(Encoding.UTF8));
+            });
+        }
+
+        [Test]
+        public void ShippedAlignerRunsDemucsInUtf8Too()
+        {
+            // Belt and braces: the vendored script sets the same variables on the demucs subprocess,
+            // so a direct invocation outside the game behaves the same way. Found the way
+            // ShippedAlignerAcceptsVocalModes finds it: the repo's own lyriclab/ above the test dir.
+            string? vendored = null;
+
+            for (var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory); dir != null && vendored == null; dir = dir.Parent)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "lyriclab", "align_lyrics.py")))
+                    vendored = Path.Combine(dir.FullName, "lyriclab", "align_lyrics.py");
+            }
+
+            Assert.That(vendored, Is.Not.Null);
+
+            string script = File.ReadAllText(vendored!);
+            int at = script.IndexOf("def separate_vocals", StringComparison.Ordinal);
+            string body = script.Substring(at, script.IndexOf("\ndef ", at + 10, StringComparison.Ordinal) - at);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(body, Does.Contain("env[\"PYTHONUTF8\"] = \"1\""));
+                Assert.That(body, Does.Contain("env[\"PYTHONIOENCODING\"] = \"utf-8\""));
+                Assert.That(script, Does.Contain("ALIGNER_VERSION = \"8\""), "installed version-7 copies must be offered the update");
+            });
+        }
+
+        [Test]
+        public void NoFallbackFailureNamesTheSituationThatApplies()
+        {
+            const string tail = "  File \"align_lyrics.py\", line 4049, in main |     align_src = separate_vocals(song_wav, work, | subprocess.CalledProcessError: Command '[...]' returned non-zero exit status 1.";
+
+            string notInstalled = LyricMapImporter.NoFallbackFailureMessage(false, false, null);
+            string broken = LyricMapImporter.NoFallbackFailureMessage(false, true, null);
+            string failed = LyricMapImporter.NoFallbackFailureMessage(false, false, tail);
+            string failedPartial = LyricMapImporter.NoFallbackFailureMessage(true, false, tail);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(notInstalled, Does.StartWith("no auto-aligner is available").And.Contain("Install the local auto-aligner"));
+                Assert.That(broken, Does.Contain("install is incomplete").And.Contain("Repair local auto-aligner"));
+                Assert.That(failed, Does.StartWith("the local auto-aligner is installed but its run failed"));
+                Assert.That(failed, Does.Contain("subprocess.CalledProcessError"), "the last line of the tail is the one that stopped it");
+                Assert.That(failed, Does.Not.Contain("line 4049"), "not the whole tail");
+                Assert.That(failed, Does.Not.Contain("Install the local auto-aligner"), "it is installed; do not tell them to install it");
+                Assert.That(failedPartial, Does.Contain("only some lines have [mm:ss.xx] timestamps"));
+                Assert.That(LyricMapImporter.ShortAlignerFailure(new string('x', 400)), Has.Length.EqualTo(160));
+            });
+        }
+
         private static typebeat.Game.Beatmaps.Beatmap decode(string osuText)
         {
             using var stream = new MemoryStream(Encoding.UTF8.GetBytes(osuText));
