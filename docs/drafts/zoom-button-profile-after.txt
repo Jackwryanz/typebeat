@@ -1,0 +1,120 @@
+
+==== ALL 16 CORES ====
+root headless, timeline width 1,031 px, track 170,300 ms, decoded points 183,575, default zoom 28.4, min/max zoom 17.0/340.6, step per notch 6.47
+-- idle at default zoom
+   frames 251, update ms: mean 1.48 p50 1.49 p95 1.84 p99 2.18 max 2.63; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 33.0 MiB (update thread 32.8 MiB, largest frame 0.13 MiB); gen0 2, gen2 0; resamples started 0, applied 0, points now 29,264
+-- BUTTON clicks, default -> max (one click per 250 ms)
+   frames 1455, update ms: mean 1.12 p50 0.91 p95 2.13 p99 3.59 max 22.95; over 16.7 ms 1, over 4.17 ms 6
+   alloc total 317.1 MiB (update thread 264.5 MiB, largest frame 4.60 MiB); gen0 18, gen2 2; resamples started 24, applied 24, points now 183,575
+   actions 52, that moved the zoom 49, zoom step per action min 1.59 max 6.47, final zoom 340.6
+-- WHEEL notches, default -> max (one notch per 250 ms)
+   frames 1682, update ms: mean 0.80 p50 0.73 p95 1.25 p99 1.97 max 8.20; over 16.7 ms 0, over 4.17 ms 2
+   alloc total 330.5 MiB (update thread 278.6 MiB, largest frame 1.33 MiB); gen0 19, gen2 1; resamples started 24, applied 24, points now 183,575
+   actions 52, that moved the zoom 49, zoom step per action min 1.59 max 6.47, final zoom 340.6
+-- BUTTON held 4 s from default
+   frames 216, update ms: mean 0.75 p50 0.72 p95 0.99 p99 1.38 max 1.93; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 34.3 MiB (update thread 28.9 MiB, largest frame 0.75 MiB); gen0 2, gen2 0; resamples started 3, applied 3, points now 183,575
+-- HELD at 0% (zoom 28.4)
+   frames 259, update ms: mean 0.60 p50 0.57 p95 0.84 p99 0.95 max 1.28; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 33.3 MiB (update thread 33.2 MiB, largest frame 0.13 MiB); gen0 2, gen2 0; resamples started 0, applied 0, points now 29,264
+   draw @ 0%: waveform walks 1,032 quads of 29,264 points (masking bounds 1,031 px wide, visible 1,031 px); ~0.2 MiB of vertices per frame on a real renderer
+   draw CPU (dummy renderer, median of 31): whole game 1.45 ms
+     without waveform (1): 0.86 ms (share 0.59 ms)
+     without timing grids (3): 1.41 ms (share 0.04 ms)
+     without lyric strip (1): 1.41 ms (share 0.04 ms)
+     without line list (1): 1.10 ms (share 0.35 ms)
+     without zoom buttons (2): 0.54 ms (share 0.91 ms)
+-- HELD at 25% (zoom 106.4)
+   frames 256, update ms: mean 0.61 p50 0.57 p95 0.83 p99 1.10 max 1.21; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 32.9 MiB (update thread 32.8 MiB, largest frame 0.13 MiB); gen0 2, gen2 0; resamples started 0, applied 0, points now 109,738
+   draw @ 25%: waveform walks 1,032 quads of 109,738 points (masking bounds 1,031 px wide, visible 1,031 px); ~0.2 MiB of vertices per frame on a real renderer
+   draw CPU (dummy renderer, median of 31): whole game 0.49 ms
+     without waveform (1): 0.16 ms (share 0.33 ms)
+     without timing grids (3): 0.42 ms (share 0.08 ms)
+     without lyric strip (1): 0.40 ms (share 0.09 ms)
+     without line list (1): 0.34 ms (share 0.16 ms)
+     without zoom buttons (2): 0.41 ms (share 0.09 ms)
+-- HELD at 50% (zoom 184.5)
+   frames 251, update ms: mean 0.59 p50 0.56 p95 0.80 p99 0.97 max 1.27; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 32.3 MiB (update thread 32.2 MiB, largest frame 0.13 MiB); gen0 2, gen2 0; resamples started 0, applied 0, points now 183,575
+   draw @ 50%: waveform walks 996 quads of 183,575 points (masking bounds 1,031 px wide, visible 1,031 px); ~0.2 MiB of vertices per frame on a real renderer
+   draw CPU (dummy renderer, median of 31): whole game 0.44 ms
+     without waveform (1): 0.16 ms (share 0.28 ms)
+     without timing grids (3): 0.58 ms (share -0.14 ms)
+     without lyric strip (1): 0.45 ms (share -0.01 ms)
+     without line list (1): 0.35 ms (share 0.09 ms)
+     without zoom buttons (2): 0.40 ms (share 0.04 ms)
+-- HELD at 100% (zoom 340.6)
+   frames 253, update ms: mean 0.61 p50 0.58 p95 0.82 p99 0.97 max 1.29; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 32.6 MiB (update thread 32.4 MiB, largest frame 0.13 MiB); gen0 2, gen2 0; resamples started 0, applied 0, points now 183,575
+   draw @ 100%: waveform walks 540 quads of 183,575 points (masking bounds 1,031 px wide, visible 1,031 px); ~0.1 MiB of vertices per frame on a real renderer
+   draw CPU (dummy renderer, median of 31): whole game 0.29 ms
+     without waveform (1): 0.17 ms (share 0.12 ms)
+     without timing grids (3): 0.29 ms (share -0.00 ms)
+     without lyric strip (1): 0.30 ms (share -0.01 ms)
+     without line list (1): 0.23 ms (share 0.06 ms)
+     without zoom buttons (2): 0.29 ms (share -0.00 ms)
+-- HELD at 100% WITHOUT lyric strip and line list (zoom 340.6)
+   frames 302, update ms: mean 0.22 p50 0.19 p95 0.36 p99 0.44 max 0.52; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 2.5 MiB (update thread 2.5 MiB, largest frame 0.01 MiB); gen0 0, gen2 0; resamples started 0, applied 0, points now 183,575
+
+==== PINNED TO 2 CORES ====
+root headless, timeline width 1,031 px, track 170,300 ms, decoded points 183,575, default zoom 28.4, min/max zoom 17.0/340.6, step per notch 6.47
+-- idle at default zoom
+   frames 254, update ms: mean 0.75 p50 0.69 p95 1.21 p99 1.42 max 1.52; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 32.7 MiB (update thread 32.5 MiB, largest frame 0.13 MiB); gen0 2, gen2 0; resamples started 0, applied 0, points now 29,264
+-- BUTTON clicks, default -> max (one click per 250 ms)
+   frames 1495, update ms: mean 1.05 p50 0.91 p95 1.95 p99 2.84 max 6.61; over 16.7 ms 0, over 4.17 ms 2
+   alloc total 320.6 MiB (update thread 268.2 MiB, largest frame 4.60 MiB); gen0 18, gen2 2; resamples started 24, applied 24, points now 183,575
+   actions 52, that moved the zoom 49, zoom step per action min 1.59 max 6.47, final zoom 340.6
+-- WHEEL notches, default -> max (one notch per 250 ms)
+   frames 1458, update ms: mean 1.04 p50 0.93 p95 1.83 p99 2.66 max 5.46; over 16.7 ms 0, over 4.17 ms 1
+   alloc total 301.5 MiB (update thread 249.5 MiB, largest frame 1.31 MiB); gen0 17, gen2 1; resamples started 24, applied 24, points now 183,575
+   actions 52, that moved the zoom 49, zoom step per action min 1.59 max 6.47, final zoom 340.6
+-- BUTTON held 4 s from default
+   frames 174, update ms: mean 1.12 p50 0.96 p95 2.15 p99 3.23 max 3.65; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 28.8 MiB (update thread 23.5 MiB, largest frame 0.75 MiB); gen0 2, gen2 0; resamples started 3, applied 3, points now 183,575
+-- HELD at 0% (zoom 28.4)
+   frames 256, update ms: mean 0.79 p50 0.71 p95 1.29 p99 1.70 max 1.82; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 32.9 MiB (update thread 32.8 MiB, largest frame 0.13 MiB); gen0 2, gen2 0; resamples started 0, applied 0, points now 29,264
+   draw @ 0%: waveform walks 1,032 quads of 29,264 points (masking bounds 1,031 px wide, visible 1,031 px); ~0.2 MiB of vertices per frame on a real renderer
+   draw CPU (dummy renderer, median of 31): whole game 0.46 ms
+     without waveform (1): 0.18 ms (share 0.28 ms)
+     without timing grids (3): 0.49 ms (share -0.03 ms)
+     without lyric strip (1): 0.46 ms (share -0.00 ms)
+     without line list (1): 0.40 ms (share 0.06 ms)
+     without zoom buttons (2): 0.47 ms (share -0.00 ms)
+-- HELD at 25% (zoom 106.4)
+   frames 253, update ms: mean 0.79 p50 0.70 p95 1.30 p99 2.25 max 4.88; over 16.7 ms 0, over 4.17 ms 1
+   alloc total 32.6 MiB (update thread 32.4 MiB, largest frame 0.13 MiB); gen0 2, gen2 0; resamples started 0, applied 0, points now 109,738
+   draw @ 25%: waveform walks 1,032 quads of 109,738 points (masking bounds 1,031 px wide, visible 1,031 px); ~0.2 MiB of vertices per frame on a real renderer
+   draw CPU (dummy renderer, median of 31): whole game 0.48 ms
+     without waveform (1): 0.20 ms (share 0.28 ms)
+     without timing grids (3): 0.47 ms (share 0.01 ms)
+     without lyric strip (1): 0.47 ms (share 0.01 ms)
+     without line list (1): 0.37 ms (share 0.11 ms)
+     without zoom buttons (2): 0.44 ms (share 0.04 ms)
+-- HELD at 50% (zoom 184.5)
+   frames 252, update ms: mean 0.76 p50 0.69 p95 1.20 p99 1.54 max 1.58; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 32.4 MiB (update thread 32.3 MiB, largest frame 0.13 MiB); gen0 2, gen2 0; resamples started 0, applied 0, points now 183,575
+   draw @ 50%: waveform walks 996 quads of 183,575 points (masking bounds 1,031 px wide, visible 1,031 px); ~0.2 MiB of vertices per frame on a real renderer
+   draw CPU (dummy renderer, median of 31): whole game 0.46 ms
+     without waveform (1): 0.18 ms (share 0.28 ms)
+     without timing grids (3): 0.46 ms (share -0.00 ms)
+     without lyric strip (1): 0.48 ms (share -0.02 ms)
+     without line list (1): 0.39 ms (share 0.07 ms)
+     without zoom buttons (2): 0.46 ms (share 0.00 ms)
+-- HELD at 100% (zoom 340.6)
+   frames 250, update ms: mean 0.99 p50 0.75 p95 2.72 p99 3.54 max 10.85; over 16.7 ms 0, over 4.17 ms 1
+   alloc total 32.2 MiB (update thread 32.0 MiB, largest frame 0.13 MiB); gen0 2, gen2 0; resamples started 0, applied 0, points now 183,575
+   draw @ 100%: waveform walks 540 quads of 183,575 points (masking bounds 1,031 px wide, visible 1,031 px); ~0.1 MiB of vertices per frame on a real renderer
+   draw CPU (dummy renderer, median of 31): whole game 0.32 ms
+     without waveform (1): 0.18 ms (share 0.14 ms)
+     without timing grids (3): 0.33 ms (share -0.01 ms)
+     without lyric strip (1): 0.32 ms (share 0.00 ms)
+     without line list (1): 0.27 ms (share 0.05 ms)
+     without zoom buttons (2): 0.32 ms (share -0.00 ms)
+-- HELD at 100% WITHOUT lyric strip and line list (zoom 340.6)
+   frames 289, update ms: mean 0.27 p50 0.24 p95 0.48 p99 0.72 max 0.79; over 16.7 ms 0, over 4.17 ms 0
+   alloc total 2.4 MiB (update thread 2.4 MiB, largest frame 0.01 MiB); gen0 1, gen2 0; resamples started 0, applied 0, points now 183,575

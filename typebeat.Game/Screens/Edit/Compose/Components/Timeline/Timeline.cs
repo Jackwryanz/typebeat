@@ -79,15 +79,28 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         /// </summary>
         private float defaultTimelineZoom;
 
-        private WaveformGraph waveform = null!;
-
         /// <summary>
         /// The waveform as the map will SOUND (see <see cref="updateWaveformGain"/>): the same peaks,
-        /// scaled by the map's own gain. Its container clips, which is the point rather than a detail -
-        /// a peak the amplifier pushes past full scale is drawn flat against the edge instead of
-        /// running off the timeline, so a gain that clips is legible here before it is audible.
+        /// scaled by the map's own gain. It is clipped, which is the point rather than a detail - a peak
+        /// the amplifier pushes past full scale is drawn flat against the edge instead of running off the
+        /// timeline, so a gain that clips is legible here before it is audible.
         /// </summary>
-        private Container waveformClip = null!;
+        /// <remarks>
+        /// <para>The clip is the TIMELINE'S OWN masking (a scroll container masks to its bounds), whose
+        /// height is exactly the strip the graph sits in, and deliberately not a masking container
+        /// wrapped around the graph. The framework's waveform draw node walks every point inside the
+        /// innermost masking container's bounds, so a clip around the graph, which spans the whole
+        /// ZOOMED content, made it emit a quad for every point of the song on every frame whether it
+        /// was on screen or not: 29k quads at the default zoom and the whole 183k of a 3 minute song
+        /// from half zoom inwards, around 45 ms of draw thread work a frame before a single vertex
+        /// reached the GPU. Clipped by the timeline, it walks only the points across the visible
+        /// width.</para>
+        ///
+        /// <para>One visible difference to the old clip: the graph is shifted
+        /// <see cref="Editor.WAVEFORM_VISUAL_OFFSET"/> earlier, and that sliver now shows left of the
+        /// zero marker when the view is at the very start, as it did before the gain display.</para>
+        /// </remarks>
+        private WaveformGraph waveform = null!;
 
         private double appliedWaveformGain = -1;
 
@@ -165,23 +178,19 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
                     Height = timeline_height,
                     Children = new[]
                     {
-                        waveformClip = new Container
+                        // No masking container around the graph: see the remarks on waveform.
+                        waveform = new TimelineWaveformGraph
                         {
                             RelativeSizeAxes = Axes.Both,
-                            Masking = true,
-                            Child = waveform = new TimelineWaveformGraph
-                            {
-                                RelativeSizeAxes = Axes.Both,
-                                // Scalings happen about the graph's VERTICAL CENTRE, because that is where
-                                // the waveform is drawn from: a gain has to grow it both ways, not just
-                                // downwards.
-                                Anchor = Anchor.Centre,
-                                Origin = Anchor.Centre,
-                                BaseColour = colours.Blue.Opacity(0.2f),
-                                LowColour = colours.BlueLighter,
-                                MidColour = colours.BlueDark,
-                                HighColour = colours.BlueDarker,
-                            },
+                            // Scalings happen about the graph's VERTICAL CENTRE, because that is where
+                            // the waveform is drawn from: a gain has to grow it both ways, not just
+                            // downwards.
+                            Anchor = Anchor.Centre,
+                            Origin = Anchor.Centre,
+                            BaseColour = colours.Blue.Opacity(0.2f),
+                            LowColour = colours.BlueLighter,
+                            MidColour = colours.BlueDark,
+                            HighColour = colours.BlueDarker,
                         },
                         centreMarker.CreateProxy(),
                         userContent,
