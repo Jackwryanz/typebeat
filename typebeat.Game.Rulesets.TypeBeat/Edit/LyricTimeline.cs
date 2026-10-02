@@ -101,14 +101,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private const double max_window_ms = 120000; // furthest zoom-out
 
         // Rebuild signature: line identities + text + unit / boundary / pause counts (positions are
-        // re-polled, but a HANDLE appearing or vanishing needs a rebuild).
-        private readonly List<(TypeBeatHitObject hitObject, string rawText, int unitCount, int syllableCount, int pauseCount)> displayed = new List<(TypeBeatHitObject, string, int, int, int)>();
+        // re-polled, but a HANDLE appearing or vanishing needs a rebuild). The LyricLine the
+        // signature was last checked against rides along: a line is immutable, so while the
+        // reference is unchanged the counts cannot have moved and the frame skips recounting them.
+        private readonly List<(TypeBeatHitObject hitObject, LyricLine line, string rawText, int unitCount, int syllableCount, int pauseCount)> displayed
+            = new List<(TypeBeatHitObject, LyricLine, string, int, int, int)>();
+
+        // The idle editor re-polls every child each frame, so nothing on that path may allocate: the
+        // sort is cached, and each layer's children are held in typed lists filled by rebuild()
+        // rather than filtered with OfType (an iterator per layer per frame).
+        private readonly OrderedLinesCache orderedLines = new OrderedLinesCache();
+        private readonly List<LineBand> bands = new List<LineBand>();
+        private readonly List<WordBlock> blocks = new List<WordBlock>();
+        private readonly List<WordJoinTarget> joins = new List<WordJoinTarget>();
+        private readonly List<BoundaryHandle> boundaryHandles = new List<BoundaryHandle>();
+        private readonly List<SyllableHandle> syllableHandles = new List<SyllableHandle>();
+        private readonly List<PauseRegion> pauseRegions = new List<PauseRegion>();
+        private readonly Func<double, float> positionOf;
 
         private bool edgeHovered;
 
         public LyricTimeline()
         {
             RelativeSizeAxes = Axes.Both;
+            positionOf = PositionOf;
 
             InternalChildren = new Drawable[]
             {
@@ -233,31 +249,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             windowStart = viewStart;
 
-            var ordered = TypeBeatEditorOperations.OrderedLines(editorBeatmap);
+            var ordered = orderedLines.Get(editorBeatmap);
 
             if (signatureChanged(ordered))
                 rebuild(ordered);
 
-            foreach (var band in bandLayer.OfType<LineBand>())
-                band.UpdateLayout(this);
+            for (int i = 0; i < bands.Count; i++)
+                bands[i].UpdateLayout(this);
 
-            foreach (var block in blockLayer.OfType<WordBlock>())
-                block.UpdateLayout(this);
+            for (int i = 0; i < blocks.Count; i++)
+                blocks[i].UpdateLayout(this);
 
-            foreach (var join in handleLayer.OfType<WordJoinTarget>())
-                join.UpdateLayout(this);
+            for (int i = 0; i < joins.Count; i++)
+                joins[i].UpdateLayout(this);
 
-            foreach (var handle in handleLayer.OfType<BoundaryHandle>())
-                handle.UpdateLayout(this);
+            for (int i = 0; i < boundaryHandles.Count; i++)
+                boundaryHandles[i].UpdateLayout(this);
 
-            foreach (var syllable in handleLayer.OfType<SyllableHandle>())
-                syllable.UpdateLayout(this);
+            for (int i = 0; i < syllableHandles.Count; i++)
+                syllableHandles[i].UpdateLayout(this);
 
-            foreach (var region in handleLayer.OfType<PauseRegion>())
-                region.UpdateLayout(this);
+            for (int i = 0; i < pauseRegions.Count; i++)
+                pauseRegions[i].UpdateLayout(this);
 
             // A live tap-timing pass has committed nothing yet; its taps show as ghosts on top.
-            ghostLayer.UpdateGhosts(state.TapSession?.Taps, PositionOf);
+            ghostLayer.UpdateGhosts(state.TapSession?.Taps, positionOf);
 
             double now = editorClock.CurrentTime;
             bool playheadVisible = now >= windowStart && now <= windowStart + windowLength;
@@ -273,14 +289,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             for (int i = 0; i < ordered.Count; i++)
             {
-                var (hitObject, rawText, unitCount, syllableCount, pauseCount) = displayed[i];
+                var (hitObject, line, rawText, unitCount, syllableCount, pauseCount) = displayed[i];
 
-                if (ordered[i] != hitObject || ordered[i].Line.RawText != rawText || ordered[i].Line.Units.Count != unitCount
-                    || totalSyllableBoundaries(ordered[i].Line) != syllableCount
-                    || totalPauses(ordered[i].Line) != pauseCount)
+                if (ordered[i] != hitObject)
+                    return true;
+
+                var current = ordered[i].Line;
+
+                if (ReferenceEquals(current, line))
+                    continue;
+
+                if (current.RawText != rawText || current.Units.Count != unitCount
+                    || totalSyllableBoundaries(current) != syllableCount
+                    || totalPauses(current) != pauseCount)
                 {
                     return true;
                 }
+
+                // Retimed in place (a drag): the same handles, so no rebuild; remember the new line.
+                displayed[i] = (hitObject, current, rawText, unitCount, syllableCount, pauseCount);
             }
 
             return false;
@@ -291,8 +318,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             int count = 0;
 
-            foreach (var unit in line.Units)
-                count += unit.SyllableBoundaries.Count;
+            for (int i = 0; i < line.Units.Count; i++)
+                count += line.Units[i].SyllableBoundaries.Count;
 
             return count;
         }
@@ -307,8 +334,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             int count = 0;
 
-            foreach (var unit in line.Units)
-                count += unit.Pauses.Count;
+            for (int i = 0; i < line.Units.Count; i++)
+                count += line.Units[i].Pauses.Count;
 
             return count;
         }
@@ -319,38 +346,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             bandLayer.Clear();
             blockLayer.Clear();
             handleLayer.Clear();
+            bands.Clear();
+            blocks.Clear();
+            joins.Clear();
+            boundaryHandles.Clear();
+            syllableHandles.Clear();
+            pauseRegions.Clear();
 
             for (int i = 0; i < ordered.Count; i++)
             {
                 var hitObject = ordered[i];
-                displayed.Add((hitObject, hitObject.Line.RawText, hitObject.Line.Units.Count,
+                displayed.Add((hitObject, hitObject.Line, hitObject.Line.RawText, hitObject.Line.Units.Count,
                     totalSyllableBoundaries(hitObject.Line), totalPauses(hitObject.Line)));
 
-                bandLayer.Add(new LineBand(this, hitObject, i));
+                bandLayer.Add(add(bands, new LineBand(this, hitObject, i)));
 
                 for (int j = 0; j < hitObject.Line.Units.Count; j++)
                 {
-                    blockLayer.Add(new WordBlock(this, hitObject, j));
+                    blockLayer.Add(add(blocks, new WordBlock(this, hitObject, j)));
 
                     if (j + 1 < hitObject.Line.Units.Count)
-                        handleLayer.Add(new WordJoinTarget(hitObject, j));
+                        handleLayer.Add(add(joins, new WordJoinTarget(hitObject, j)));
 
                     // One draggable dotted line per syllable subdivision inside the word; sits above
                     // the word block so it takes the drag before the block's move/resize.
                     for (int k = 0; k < hitObject.Line.Units[j].SyllableBoundaries.Count; k++)
-                        handleLayer.Add(new SyllableHandle(this, hitObject, j, k));
+                        handleLayer.Add(add(syllableHandles, new SyllableHandle(this, hitObject, j, k)));
 
                     // One greyed band with two edge handles per authored pause, same layer for the same
                     // reason: a rest is adjusted in place, not as a word move.
                     for (int p = 0; p < hitObject.Line.Units[j].Pauses.Count; p++)
-                        handleLayer.Add(new PauseRegion(this, hitObject, j, p));
+                        handleLayer.Add(add(pauseRegions, new PauseRegion(this, hitObject, j, p)));
                 }
 
                 // ONE boundary per line start: dragging it moves this line's start and the
                 // previous line's end together (SetLineStart maintains both sides).
                 // There is deliberately no sung-end marker: since backlog 246 a line's end_ms is
                 // derived from its last word's end, so the last word BLOCK is that marker.
-                handleLayer.Add(new BoundaryHandle(this, hitObject));
+                handleLayer.Add(add(boundaryHandles, new BoundaryHandle(this, hitObject)));
+            }
+
+            static T add<T>(List<T> list, T drawable)
+            {
+                list.Add(drawable);
+                return drawable;
             }
         }
 
@@ -566,7 +605,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 if (leftIndex + 1 >= units.Count || units[leftIndex].EndTime > units[leftIndex + 1].StartTime
                     || state.HiddenByTapScope(hitObject, leftIndex) || state.HiddenByTapScope(hitObject, leftIndex + 1)
-                    || hitObject.Line.UnromanisedWords.Any(w => w.Position == leftIndex + 1))
+                    || unromanisedAt(hitObject.Line, leftIndex + 1))
                 {
                     Alpha = 0;
                     return;
@@ -579,6 +618,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 float end = strip.PositionOf(units[leftIndex + 1].StartTime);
                 Width = Math.Max(8, end - start);
                 X = (start + end - Width) / 2;
+            }
+
+            /// <summary>Whether an unromanised word sits at <paramref name="position"/> (a loop, since this runs every frame).</summary>
+            private static bool unromanisedAt(LyricLine line, int position)
+            {
+                var words = line.UnromanisedWords;
+
+                for (int i = 0; i < words.Count; i++)
+                {
+                    if (words[i].Position == position)
+                        return true;
+                }
+
+                return false;
             }
 
             protected override bool OnClick(ClickEvent e)
@@ -641,6 +694,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private double[] groupOrigEnd = Array.Empty<double>();
             private bool? lastOriginalView;
 
+            // The label runs are re-derived only when their inputs change: the unit (immutable, so a
+            // new reference is the only way its text, times, splits or rests move), the display text
+            // (which differs from the unit's only for a freestyle word, once per shimmer tick) and
+            // the view. An idle block allocates nothing.
+            private IReadOnlyList<PausedWord.Run> runs = Array.Empty<PausedWord.Run>();
+            private TimedUnit? runsUnit;
+            private string? runsDisplay;
+            private bool runsOriginalView;
+
             public WordBlock(LyricTimeline strip, TypeBeatHitObject hitObject, int index)
             {
                 this.strip = strip;
@@ -697,9 +759,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // the very cut the engine times the halves by (see PausedWord), so the way the word
                 // reads here is the way it is played.
                 bool originalView = state.ShowOriginalLyrics.Value && unit.Original != null;
-                IReadOnlyList<PausedWord.Run> runs = originalView
-                    ? new[] { new PausedWord.Run(unit.Original!, unit.StartTime, unit.EndTime) }
-                    : PausedWord.DisplayRuns(display, unit, unit.StartTime, unit.EndTime);
+
+                if (!ReferenceEquals(runsUnit, unit) || runsOriginalView != originalView || !string.Equals(runsDisplay, display, StringComparison.Ordinal))
+                {
+                    runs = originalView
+                        ? new[] { new PausedWord.Run(unit.Original!, unit.StartTime, unit.EndTime) }
+                        : PausedWord.DisplayRuns(display, unit, unit.StartTime, unit.EndTime);
+                    runsUnit = unit;
+                    runsDisplay = display;
+                    runsOriginalView = originalView;
+                }
+
                 ensureLabels(runs.Count);
 
                 if (lastOriginalView != originalView)

@@ -51,6 +51,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly List<TypeBeatHitObject> displayed = new List<TypeBeatHitObject>();
         private bool? lastToggleAvailable;
 
+        // Nothing on the idle per-frame path allocates: the sort is cached, and whether any line
+        // has an original (a walk of every word) is re-asked only when the order's version or the
+        // map's language moved.
+        private readonly OrderedLinesCache orderedLines = new OrderedLinesCache();
+        private int originalsCheckedVersion = -1;
+        private BeatmapLanguage? originalsCheckedLanguage;
+        private bool canShowOriginal;
+
         public LineListPanel()
         {
             RelativeSizeAxes = Axes.Both;
@@ -106,11 +114,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             base.Update();
 
-            var current = TypeBeatEditorOperations.OrderedLines(editorBeatmap);
-            bool canShowOriginal = editorBeatmap.BeatmapInfo.Metadata.Language != BeatmapLanguage.English
-                                   && editorBeatmap.BeatmapInfo.Metadata.Language != BeatmapLanguage.Instrumental
-                                   && current.Any(h => h.Line.Original != null || h.Line.UnromanisedWords.Count > 0
-                                                       || h.Line.Units.Any(u => u.Original != null));
+            var current = orderedLines.Get(editorBeatmap);
+            var language = editorBeatmap.BeatmapInfo.Metadata.Language;
+
+            if (orderedLines.Version != originalsCheckedVersion || language != originalsCheckedLanguage)
+            {
+                canShowOriginal = language != BeatmapLanguage.English
+                                  && language != BeatmapLanguage.Instrumental
+                                  && current.Any(h => h.Line.Original != null || h.Line.UnromanisedWords.Count > 0
+                                                      || h.Line.Units.Any(u => u.Original != null));
+                originalsCheckedVersion = orderedLines.Version;
+                originalsCheckedLanguage = language;
+            }
 
             if (!canShowOriginal && state.ShowOriginalLyrics.Value)
                 state.ShowOriginalLyrics.Value = false;
@@ -122,9 +137,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 lyricViewButton.Enabled.Value = canShowOriginal;
                 lastToggleAvailable = canShowOriginal;
             }
-            lyricViewButton.Text = state.ShowOriginalLyrics.Value ? "Lyrics: Original" : "Lyrics: Romanized";
+            string buttonText = state.ShowOriginalLyrics.Value ? "Lyrics: Original" : "Lyrics: Romanized";
 
-            if (!current.SequenceEqual(displayed))
+            if (lyricViewButton.Text != buttonText)
+                lyricViewButton.Text = buttonText;
+
+            if (!sameAsDisplayed(current))
             {
                 displayed.Clear();
                 displayed.AddRange(current);
@@ -143,8 +161,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // being updated, so a row that hid itself could never bring itself back when the pass
             // ended. The panel is always present, so this restores every row the frame the scope
             // clears, whichever way the pass exited.
-            foreach (var row in rows)
-                row.Alpha = state.HiddenByTapScope(row.HitObject) ? 0 : 1;
+            var children = rows.Children;
+
+            for (int i = 0; i < children.Count; i++)
+                children[i].Alpha = state.HiddenByTapScope(children[i].HitObject) ? 0 : 1;
+        }
+
+        private bool sameAsDisplayed(IReadOnlyList<TypeBeatHitObject> current)
+        {
+            if (current.Count != displayed.Count)
+                return false;
+
+            for (int i = 0; i < current.Count; i++)
+            {
+                if (current[i] != displayed[i])
+                    return false;
+            }
+
+            return true;
         }
 
         /// <summary>Brings the active line's row into view (called by the screen on line change).</summary>
@@ -177,6 +211,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private OsuTextBox textBox = null!;
             private OsuSpriteText originalCaption = null!;
             private bool? renderedOriginalView;
+
+            // The row's strings are rebuilt only when what they are built from changes: the line
+            // (immutable, so a new reference is the only way its text, words or start move), its
+            // index and the view. An idle row allocates nothing.
+            private LyricLine? builtLine;
+            private int builtIndex = -1;
+            private bool builtShowOriginal;
+            private string display = string.Empty;
+            private string caption = string.Empty;
 
             /// <summary>The caption over the text box: the line's ORIGINAL text (backlog 330), or empty.</summary>
             public string OriginalCaptionText => originalCaption.Text.ToString();
@@ -311,27 +354,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 base.Update();
 
-                indexText.Text = (HitObject.LineIndex + 1).ToString();
-                timeText.Text = formatTime(HitObject.Line.StartTime);
+                if (builtIndex != HitObject.LineIndex)
+                {
+                    builtIndex = HitObject.LineIndex;
+                    indexText.Text = (builtIndex + 1).ToString();
+                }
 
-                // The box shows the line in its PIPE form: a subdivided word carries a '|' at each
-                // of its syllable splits ("ap|ple"), which is both how the split is displayed and
-                // how it is edited (see TypeBeatEditorOperations.SetLineText). The pipe is a
-                // reserved character of this surface only; it is stripped on commit and never
-                // reaches the stored lyric or a gameplay cell.
-                string romanized = TypeBeatEditorOperations.PipeDisplayText(HitObject.Line);
-                string? original = TypeBeatEditorOperations.OriginalCaption(HitObject.Line);
-                bool originalView = state.ShowOriginalLyrics.Value && original != null;
-                string display = originalView ? original! : romanized;
-                bool modeChanged = renderedOriginalView != state.ShowOriginalLyrics.Value;
-                renderedOriginalView = state.ShowOriginalLyrics.Value;
+                bool showOriginal = state.ShowOriginalLyrics.Value;
+
+                if (!ReferenceEquals(builtLine, HitObject.Line) || builtShowOriginal != showOriginal)
+                {
+                    var line = HitObject.Line;
+
+                    if (!ReferenceEquals(builtLine, line))
+                        timeText.Text = formatTime(line.StartTime);
+
+                    // The box shows the line in its PIPE form: a subdivided word carries a '|' at each
+                    // of its syllable splits ("ap|ple"), which is both how the split is displayed and
+                    // how it is edited (see TypeBeatEditorOperations.SetLineText). The pipe is a
+                    // reserved character of this surface only; it is stripped on commit and never
+                    // reaches the stored lyric or a gameplay cell.
+                    string romanized = TypeBeatEditorOperations.PipeDisplayText(line);
+                    string? original = TypeBeatEditorOperations.OriginalCaption(line);
+                    bool originalView = showOriginal && original != null;
+                    display = originalView ? original! : romanized;
+                    caption = originalView ? $"Romanized: {romanized}" : captionFor(line);
+
+                    builtLine = line;
+                    builtShowOriginal = showOriginal;
+                }
+
+                bool modeChanged = renderedOriginalView != showOriginal;
+                renderedOriginalView = showOriginal;
 
                 textBox.ReadOnly = false;
 
                 if ((!textBox.HasFocus || modeChanged) && textBox.Text != display)
                     textBox.Text = display;
-
-                string caption = originalView ? $"Romanized: {romanized}" : captionFor(HitObject.Line);
 
                 if (originalCaption.Text != caption)
                 {
