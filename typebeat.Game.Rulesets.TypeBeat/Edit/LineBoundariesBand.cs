@@ -65,6 +65,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         // Rebuild signature: line identities + unit counts (positions are re-polled per frame).
         private readonly List<(TypeBeatHitObject hitObject, int unitCount)> displayed = new List<(TypeBeatHitObject, int)>();
 
+        // The idle editor re-polls every child each frame, so nothing on that path may allocate: the
+        // sort is cached (and the signature walk skipped while its Version is unchanged), and each
+        // layer's children are held in typed lists filled by rebuild() rather than filtered with
+        // OfType (an iterator per layer per frame).
+        private readonly OrderedLinesCache orderedLines = new OrderedLinesCache();
+        private int seenLinesVersion = -1;
+        private readonly List<LineShade> shades = new List<LineShade>();
+        private readonly List<LineMark> marks = new List<LineMark>();
+        private readonly List<WordTick> ticks = new List<WordTick>();
+
         public LineBoundariesBand()
         {
             RelativeSizeAxes = Axes.Both;
@@ -113,19 +123,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             windowLength = Math.Max(1, visibleRange);
             windowStart = windowCentre - windowLength / 2;
 
-            var ordered = TypeBeatEditorOperations.OrderedLines(editorBeatmap);
+            var ordered = orderedLines.Get(editorBeatmap);
 
-            if (signatureChanged(ordered))
-                rebuild(ordered);
+            if (orderedLines.Version != seenLinesVersion)
+            {
+                seenLinesVersion = orderedLines.Version;
 
-            foreach (var shade in shadeLayer.OfType<LineShade>())
-                shade.UpdateLayout(this);
+                if (signatureChanged(ordered))
+                    rebuild(ordered);
+            }
 
-            foreach (var mark in markLayer.OfType<LineMark>())
-                mark.UpdateLayout(this);
+            for (int i = 0; i < shades.Count; i++)
+                shades[i].UpdateLayout(this);
 
-            foreach (var tick in markLayer.OfType<WordTick>())
-                tick.UpdateLayout(this);
+            for (int i = 0; i < marks.Count; i++)
+                marks[i].UpdateLayout(this);
+
+            for (int i = 0; i < ticks.Count; i++)
+                ticks[i].UpdateLayout(this);
 
             // Ghost markers of a live tap-timing pass (nothing committed yet).
             ghostLayer.UpdateGhosts(state.TapSession?.Taps, PositionOf);
@@ -156,22 +171,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             displayed.Clear();
             shadeLayer.Clear();
             markLayer.Clear();
+            shades.Clear();
+            marks.Clear();
+            ticks.Clear();
 
             for (int i = 0; i < ordered.Count; i++)
             {
                 var hitObject = ordered[i];
                 displayed.Add((hitObject, hitObject.Line.Units.Count));
 
-                shadeLayer.Add(new LineShade(hitObject, i));
+                var shade = new LineShade(hitObject, i);
+                shades.Add(shade);
+                shadeLayer.Add(shade);
 
                 // Fainter/shorter word ticks first, then the line mark on top so a word start that
                 // coincides with the line start simply disappears under the prominent mark.
                 for (int j = 0; j < hitObject.Line.Units.Count; j++)
-                    markLayer.Add(new WordTick(hitObject, j));
+                {
+                    var tick = new WordTick(hitObject, j);
+                    ticks.Add(tick);
+                    markLayer.Add(tick);
+                }
 
-                markLayer.Add(new LineMark(hitObject));
+                var mark = new LineMark(hitObject);
+                marks.Add(mark);
+                markLayer.Add(mark);
             }
         }
+
+        /// <summary>How many shades, line marks and word ticks the band currently draws (a test hook).</summary>
+        public int DrawnElementCount => shades.Count + marks.Count + ticks.Count;
 
         /// <summary>Window-relative time → local X pixels.</summary>
         public float PositionOf(double time) => (float)((time - windowStart) / windowLength * DrawWidth);
@@ -186,8 +215,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // consistent with the word strip, and it also keeps the band the click-owner so a
             // double-click on empty space reaches OnDoubleClick below.
             double time = TimeAt(ToLocalSpace(e.ScreenSpaceMousePosition).X);
-            var hit = TypeBeatEditorOperations.OrderedLines(editorBeatmap)
-                                              .FirstOrDefault(o => o.Line.StartTime <= time && time <= o.Line.EndTime);
+            var hit = orderedLines.Get(editorBeatmap)
+                                  .FirstOrDefault(o => o.Line.StartTime <= time && time <= o.Line.EndTime);
 
             if (hit != null)
             {

@@ -16,12 +16,12 @@ using typebeat.Game.Tests.Visual;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
-    /// An IDLE editor's lyric strip and line list allocate nothing per update frame (backlog 377).
+    /// An IDLE editor's lyric strip, line list and line boundaries band allocate nothing per update frame (backlog 377, the band added by 379).
     /// Both re-sorted every line and rebuilt every row's strings (the pipe form, the caption, the
     /// time and index labels) on every frame, about 130 KiB a frame on a real map, which is a gen 0
     /// collection every couple of seconds while the mapper is only looking at the screen.
     ///
-    /// <para>The two components are updated directly, N times on the update thread with nothing
+    /// <para>The three components are updated directly, N times on the update thread with nothing
     /// changing in between, and the thread's allocation over those updates is the measurement. That
     /// isolates them from the rest of the editor, whose own per-frame allocation is not this
     /// item's.</para>
@@ -32,7 +32,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private const int frames = 100;
 
         /// <summary>
-        /// The allowance per idle frame, for BOTH components together. The fixed code measures 0;
+        /// The allowance per idle frame, for ALL THREE components together. The fixed code measures 0;
         /// the allowance is there only so a framework detail (a lazily grown list, a pooled buffer)
         /// cannot make the pin flaky. The code this replaced allocated about 93 KiB a frame on this
         /// 40 line map (the strip 52 KiB of it, the list 43 KiB), so the pin fails by more than two
@@ -89,12 +89,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             LyricTimeline strip = null!;
             LineListPanel list = null!;
+            LineBoundariesBand band = null!;
 
-            AddUntilStep("strip and list loaded", () =>
+            AddUntilStep("strip, list and band loaded", () =>
             {
                 strip = Editor.ChildrenOfType<LyricTimeline>().SingleOrDefault()!;
                 list = Editor.ChildrenOfType<LineListPanel>().SingleOrDefault()!;
-                return strip?.IsLoaded == true && list?.IsLoaded == true && list.ChildrenOfType<LineListPanel.LineRow>().Count() == line_count;
+                band = Editor.ChildrenOfType<LineBoundariesBand>().SingleOrDefault()!;
+                return strip?.IsLoaded == true && band?.IsLoaded == true && list?.IsLoaded == true && list.ChildrenOfType<LineListPanel.LineRow>().Count() == line_count;
             });
             AddStep("stop the clock", () => EditorClock.Stop());
             AddWaitStep("settle", 10);
@@ -102,6 +104,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Non-vacuity: the strip really built its bands (it bails before the sort until the
             // waveform timeline is loaded), and the rows really carry the caption path.
             AddAssert("strip built", () => strip.DrawnBandEndTime(EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().First()) != null);
+            // Three words per line: one shade, one line mark and three word ticks each.
+            AddAssert("band built", () => band.DrawnElementCount == line_count * 5);
             AddAssert("rows show originals", () => list.ChildrenOfType<LineListPanel.LineRow>().All(r => r.OriginalCaptionText.Length > 0));
             AddAssert("rows draw rest marks", () => list.ChildrenOfType<LineListPanel.LineRow>().All(r => r.VisibleRestMarkers.Any()));
 
@@ -114,6 +118,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     // One unmeasured pass, so a change the step above made is not counted.
                     strip.UpdateSubTree();
                     list.UpdateSubTree();
+                    band.UpdateSubTree();
 
                     long before = GC.GetAllocatedBytesForCurrentThread();
 
@@ -121,6 +126,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     {
                         strip.UpdateSubTree();
                         list.UpdateSubTree();
+                        band.UpdateSubTree();
                     }
 
                     long perFrame = (GC.GetAllocatedBytesForCurrentThread() - before) / frames;
