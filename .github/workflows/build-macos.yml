@@ -17,20 +17,8 @@
 #                     is not enough; it must exist on this repo. build-linux.yml already needs
 #                     both of these, so if that workflow has ever run green, nothing to do here.
 #
-#   R2 secrets (backlog 364, OPTIONAL: with none of them set the R2 legs are skipped with a
-#   notice and the workflow deploys to the box exactly as before; with only some set it fails):
-#   R2_ACCOUNT_ID         The Cloudflare account id; uploads go to its S3 endpoint
-#                         https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com, never a proxied host.
-#   R2_BUCKET             The public bucket the website redirects the big downloads to.
-#   R2_ACCESS_KEY_ID      A bucket-scoped R2 API token with Object Read and Write, CI's own
-#   R2_SECRET_ACCESS_KEY  (not the server's). The repo is public: these are never echoed.
-#   The website (typebeat-web, deploy/README.md "Large downloads on Cloudflare R2") 302s the
-#   installer and the feed's *.nupkg to that bucket on its Cloudflare hosts and keeps streaming
-#   the box's copy on the direct bss.* hosts, so a release lands in BOTH: "Upload to R2" puts the
-#   packages and the installer in the bucket BEFORE "Deploy to production" lands anything on the
-#   box (the manifests last, so no manifest ever names a package the bucket lacks), and the prune
-#   step runs the same keep rule over the bucket after the box. .github/scripts/r2.sh holds both
-#   R2 legs. The manifests themselves are box-only.
+#   No R2 secrets any more (backlog 380): the box mirrors /data/downloads to the public bucket
+#   itself (the website's ReleasesMirror service), so this workflow only uploads to the box.
 #
 # ---------------------------------------------------------------------------------------------
 # WHY ONE ARCHITECTURE, AND WHY arm64
@@ -292,31 +280,8 @@ jobs:
           echo "46.62.142.5 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPrS4lA2m05VkJuLeaodsTV42Co8p0GWCE+NeeA9Wb7E" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      # The bucket half of the release (see the R2 header): the full/delta packages, then the
-      # installer under its stable name, BEFORE the box leg below lands the manifests. An S3 PUT is
-      # atomic, so there is no .incoming dance here. Packages are content-named and cached a day
-      # (the website's takedown doctrine); the installer's name is stable across releases, so it is
-      # no-cache and the edge revalidates it by ETag. A failure here fails the run before the box
-      # has anything new, which is the point of the ordering.
-      - name: Upload to R2
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          set -euo pipefail
-          rc=0
-          bash .github/scripts/r2.sh configured || rc=$?
-          if [ "$rc" -eq 1 ]; then exit 0; fi
-          if [ "$rc" -ne 0 ]; then exit 1; fi
-          for f in "${GITHUB_WORKSPACE}"/release-macos/*.nupkg; do
-            bash .github/scripts/r2.sh put "$f" "downloads/releases/$(basename "$f")" "public, max-age=86400"
-          done
-          INSTALLER=$(ls "${GITHUB_WORKSPACE}"/release-macos/*.pkg | head -n1)
-          bash .github/scripts/r2.sh put "$INSTALLER" "downloads/${PKG_NAME}" "no-cache" \
-            "attachment; filename=\"${PKG_NAME}\""
-          echo "macOS release ${{ inputs.version }} uploaded to R2."
+      # No bucket upload (backlog 380): the box's ReleasesMirror copies these to the bucket within
+      # minutes of landing, and the website streams a nupkg from the box until the bucket holds it.
 
       # Ship the artifacts to a scratch dir on the box, then land them inside the app container's
       # /data volume with docker cp + an in-container atomic mv (rename within the same dir), so a
@@ -369,11 +334,6 @@ jobs:
       - name: Prune release feed
         if: ${{ inputs.prune }}
         continue-on-error: true
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           set -uo pipefail
           SSH="ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_HOST}"
@@ -556,14 +516,5 @@ jobs:
           ${DEX} du -sh "${REL}" 2>/dev/null || true
           PRUNE
 
-          # The bucket pass (backlog 364): the same keep set, regex and KEEP_VERSIONS over the R2
-          # bucket's downloads/releases/, run here on the runner by .github/scripts/r2.sh. It only
-          # runs when the feed was read in full (the early exit above covers it too), and a bucket
-          # that is not configured is skipped with a notice.
-          rc=0
-          bash .github/scripts/r2.sh configured || rc=$?
-          if [ "$rc" -eq 0 ]; then
-            FEED_B64="${FEED_B64}" KEEP_VERSIONS=3 bash .github/scripts/r2.sh prune
-          elif [ "$rc" -eq 2 ]; then
-            echo "::warning::the R2 bucket pass was skipped: R2 is half configured"
-          fi
+          # No bucket pass (backlog 380): the box's ReleasesMirror propagates these deletions to
+          # the bucket's downloads/releases/ on its next sweep.
