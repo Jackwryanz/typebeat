@@ -103,6 +103,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // waveform timeline is loaded), and the rows really carry the caption path.
             AddAssert("strip built", () => strip.DrawnBandEndTime(EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().First()) != null);
             AddAssert("rows show originals", () => list.ChildrenOfType<LineListPanel.LineRow>().All(r => r.OriginalCaptionText.Length > 0));
+            AddAssert("rows draw rest marks", () => list.ChildrenOfType<LineListPanel.LineRow>().All(r => r.VisibleRestMarkers.Any()));
 
             foreach (bool originalView in new[] { false, true })
             {

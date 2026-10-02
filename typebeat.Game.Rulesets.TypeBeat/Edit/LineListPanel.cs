@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
+using osu.Framework.Bindables;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -17,6 +18,7 @@ using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit;
@@ -58,6 +60,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private int originalsCheckedVersion = -1;
         private BeatmapLanguage? originalsCheckedLanguage;
         private bool canShowOriginal;
+
+        // The gameplay syllable-marker setting (backlog 225), which the rows' rest view follows
+        // (backlog 378): off, a row at rest shows its plain text with no marks. Defaults on, so a
+        // panel built with no ruleset config (a bare test scene) draws them like gameplay does.
+        private readonly Bindable<bool> syllableMarkers = new Bindable<bool>(true);
 
         public LineListPanel()
         {
@@ -110,6 +117,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             lyricViewButton.Enabled.Value = false;
         }
 
+        [BackgroundDependencyLoader]
+        private void load(IRulesetConfigCache? configCache)
+        {
+            TypeBeatRulesetConfigManager? config;
+
+            try
+            {
+                config = configCache?.GetConfigFor(new TypeBeatRuleset()) as TypeBeatRulesetConfigManager;
+            }
+            catch
+            {
+                // Config unavailable (cache not loaded, ruleset unregistered): keep the default.
+                config = null;
+            }
+
+            config?.BindWith(TypeBeatRulesetSetting.ShowSyllableMarkers, syllableMarkers);
+        }
+
         protected override void Update()
         {
             base.Update();
@@ -150,7 +175,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 rows.Clear();
 
                 foreach (var hitObject in current)
-                    rows.Add(new LineRow(hitObject));
+                    rows.Add(new LineRow(hitObject, syllableMarkers));
             }
 
             // A tap-timing pass shows only the section it is recording. Alpha 0 makes a row
@@ -181,6 +206,83 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return true;
         }
 
+        #region The rest view: plain text plus gap marks (backlog 378)
+
+        /// <summary>
+        /// A row's REST text: its pipe form (<see cref="TypeBeatEditorOperations.PipeDisplayText"/>)
+        /// with every <see cref="Typeability.SPLIT_MARKER"/> removed, i.e. the words as gameplay
+        /// spells them. The same string instance when there is no pipe to remove.
+        /// </summary>
+        public static string RestTextOf(string pipeText) =>
+            pipeText.IndexOf(Typeability.SPLIT_MARKER) < 0 ? pipeText : pipeText.Replace(Typeability.SPLIT_MARKER.ToString(), string.Empty);
+
+        /// <summary>
+        /// The REST text's gaps that carry a syllable mark: for each pipe of
+        /// <paramref name="pipeText"/>, the index in <see cref="RestTextOf"/> of the character the
+        /// pipe stands in FRONT of, so the mark is drawn at that character's left edge exactly as
+        /// gameplay draws a mark at its cell's left edge. Ascending, distinct, and only ever a real
+        /// gap (never the text's own leading edge or past its end).
+        /// </summary>
+        public static int[] RestGapsOf(string pipeText)
+        {
+            int pipes = 0;
+
+            foreach (char c in pipeText)
+            {
+                if (c == Typeability.SPLIT_MARKER)
+                    pipes++;
+            }
+
+            if (pipes == 0)
+                return Array.Empty<int>();
+
+            int plainLength = pipeText.Length - pipes;
+            var gaps = new List<int>(pipes);
+            int plain = 0;
+
+            foreach (char c in pipeText)
+            {
+                if (c != Typeability.SPLIT_MARKER)
+                {
+                    plain++;
+                    continue;
+                }
+
+                if (plain > 0 && plain < plainLength && (gaps.Count == 0 || gaps[^1] != plain))
+                    gaps.Add(plain);
+            }
+
+            return gaps.ToArray();
+        }
+
+        /// <summary>
+        /// Re-maps a caret position in the REST text to the pipe form the focused box shows, so a
+        /// click lands where it was made: the caret stays in front of the same character, and a
+        /// caret sitting in a marked gap lands in FRONT of that gap's pipe(s), never past them.
+        /// Clamped to the text.
+        /// </summary>
+        public static int PipeCaretFor(string pipeText, int restCaret)
+        {
+            if (restCaret <= 0)
+                return 0;
+
+            int plain = 0;
+
+            for (int i = 0; i < pipeText.Length; i++)
+            {
+                // Checked BEFORE the pipe is skipped, so a caret in a marked gap stops in front of it.
+                if (plain == restCaret)
+                    return i;
+
+                if (pipeText[i] != Typeability.SPLIT_MARKER)
+                    plain++;
+            }
+
+            return pipeText.Length;
+        }
+
+        #endregion
+
         /// <summary>Brings the active line's row into view (called by the screen on line change).</summary>
         public void ScrollToActive()
         {
@@ -208,9 +310,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private readonly FillFlowContainer body;
             private OsuSpriteText indexText = null!;
             private OsuSpriteText timeText = null!;
-            private OsuTextBox textBox = null!;
+            private LineTextBox textBox = null!;
             private OsuSpriteText originalCaption = null!;
             private bool? renderedOriginalView;
+            private readonly IBindable<bool> syllableMarkers;
 
             // The row's strings are rebuilt only when what they are built from changes: the line
             // (immutable, so a new reference is the only way its text, words or start move), its
@@ -218,15 +321,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private LyricLine? builtLine;
             private int builtIndex = -1;
             private bool builtShowOriginal;
+
+            // What the box shows while FOCUSED: the pipe form, the editing syntax (or the line's
+            // original in the original view). Also the committed text an edit is compared against.
             private string display = string.Empty;
+
+            // What the box shows at REST (backlog 378): the pipe form with its pipes removed, the
+            // splits drawn instead as gameplay's gap triangles at restGaps. The original view has no
+            // pipes, so there the two forms are the same string and there are no gaps.
+            private string restText = string.Empty;
+            private int[] restGaps = Array.Empty<int>();
             private string caption = string.Empty;
 
             /// <summary>The caption over the text box: the line's ORIGINAL text (backlog 330), or empty.</summary>
             public string OriginalCaptionText => originalCaption.Text.ToString();
 
-            public LineRow(TypeBeatHitObject hitObject)
+            /// <summary>The row's text box (for scene tests).</summary>
+            public OsuTextBox TextBox => textBox;
+
+            /// <summary>The rest view's syllable marks currently drawn, in gap order (for scene tests).</summary>
+            public IEnumerable<Drawable> VisibleRestMarkers => textBox.VisibleRestMarkers;
+
+            /// <summary>The drawable of character <paramref name="index"/> of the text the box shows (for scene tests).</summary>
+            public Drawable CharacterDrawable(int index) => textBox.CharacterDrawable(index);
+
+            /// <summary>The flow the box lays its characters out in (for scene tests).</summary>
+            public FillFlowContainer TextFlowDrawable => textBox.TextFlowDrawable;
+
+            public LineRow(TypeBeatHitObject hitObject, IBindable<bool>? syllableMarkers = null)
             {
                 HitObject = hitObject;
+                this.syllableMarkers = syllableMarkers ?? new Bindable<bool>(true);
 
                 RelativeSizeAxes = Axes.X;
                 AutoSizeAxes = Axes.Y;
@@ -333,8 +458,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 if (!TypeBeatEditorOperations.SetLineText(editorBeatmap, HitObject, textBox.Text))
                 {
-                    // Normalized to empty; refuse and flash (delete the line instead).
-                    textBox.Text = TypeBeatEditorOperations.PipeDisplayText(HitObject.Line);
+                    // Normalized to empty; refuse and flash (delete the line instead). The pipe form
+                    // while the box still has focus; at rest, Update puts the rest view back.
+                    textBox.Text = textBox.HasFocus ? TypeBeatEditorOperations.PipeDisplayText(HitObject.Line) : restText;
                     background.FlashColour(TypeBeatStyle.ErrorChar, 400, Easing.OutQuint);
                 }
             }
@@ -380,6 +506,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     display = originalView ? original! : romanized;
                     caption = originalView ? $"Romanized: {romanized}" : captionFor(line);
 
+                    // At rest the box spells the words as gameplay does and marks each split with
+                    // gameplay's triangle in the gap; the pipe form comes back only on focus.
+                    restText = originalView ? display : RestTextOf(romanized);
+                    restGaps = originalView ? Array.Empty<int>() : RestGapsOf(romanized);
+                    textBox.SetRestGaps(restGaps);
+
                     builtLine = line;
                     builtShowOriginal = showOriginal;
                 }
@@ -389,8 +521,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 textBox.ReadOnly = false;
 
-                if ((!textBox.HasFocus || modeChanged) && textBox.Text != display)
-                    textBox.Text = display;
+                bool focused = textBox.HasFocus;
+                string shown = focused ? display : restText;
+
+                if ((!focused || modeChanged) && textBox.Text != shown)
+                    textBox.Text = shown;
+
+                // The marks belong to the rest text only: hidden while focused (the pipes are the
+                // marks there), with the setting off, and for the frame a commit's text is still up.
+                textBox.RestMarkersShown = !focused && syllableMarkers.Value && textBox.Text == restText;
 
                 if (originalCaption.Text != caption)
                 {
@@ -470,11 +609,194 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             /// there, and Redo is swallowed so it cannot vaporise the edit either. A pristine
             /// focused box passes both through, so the next Ctrl+Z steps into the editor history
             /// as usual (the layered-undo convention).
+            ///
+            /// <para>It also carries the REST view (backlog 378). Unfocused, the row gives it the
+            /// line's plain text and the gaps its syllable splits fall in, and it draws gameplay's
+            /// triangle in each gap: an overlay in the text container, beside the character flow and
+            /// bypassing auto-size, so it consumes no width and scrolls with the text. On focus it
+            /// swaps itself to the pipe form (<see cref="CommittedText"/>) before any key can land,
+            /// with the click's caret re-mapped from the plain text to the pipe text. Setting
+            /// <see cref="osu.Framework.Graphics.UserInterface.TextBox.Text"/> is not a commit (the
+            /// framework records it as the last committed text), and the row's commit compares
+            /// against the pipe form, so a focus gain alone never edits the line.</para>
             /// </summary>
             private partial class LineTextBox : OsuTextBox
             {
                 /// <summary>The line's committed pipe-form text, the value an in-progress edit reverts to.</summary>
                 public Func<string> CommittedText { get; init; } = () => string.Empty;
+
+                private readonly List<Triangle> restMarkers = new List<Triangle>();
+                private int[] restGaps = Array.Empty<int>();
+                private bool restMarkersShown;
+
+                // The layout the marks were last placed against. They are re-placed only when one
+                // of these moves, so an idle row reads four floats and does nothing else.
+                private string? placedText;
+                private int[]? placedGaps;
+                private Vector2 placedFlowSize = new Vector2(-1);
+                private float placedContainerHeight = -1;
+
+                // The character a not-yet-focused click put the caret in front of, in the REST text,
+                // carried from the mouse-down (which positions the caret) to the focus (which the
+                // framework grants on the click that follows it).
+                private int? pendingRestCaret;
+                private bool placingCaret;
+
+                /// <summary>The gaps (indices into the rest text) the row's rest view marks. Cheap to call with the same array.</summary>
+                public void SetRestGaps(int[] gaps)
+                {
+                    if (ReferenceEquals(gaps, restGaps))
+                        return;
+
+                    restGaps = gaps;
+
+                    while (restMarkers.Count < gaps.Length)
+                    {
+                        var marker = new Triangle
+                        {
+                            // Gameplay's mark (LyricLineDisplay.addSyllableMarkers): same colour,
+                            // apex up, its axis on the gap, and never part of the layout.
+                            Colour = TypeBeatStyle.UntypedChar,
+                            Anchor = Anchor.TopLeft,
+                            Origin = Anchor.TopCentre,
+                            BypassAutoSizeAxes = Axes.Both,
+                            Alpha = 0,
+                        };
+
+                        restMarkers.Add(marker);
+                        TextContainer.Add(marker);
+                    }
+
+                    placedGaps = null;
+                    applyRestMarkerAlpha();
+                }
+
+                /// <summary>Whether the rest view's marks are drawn (the row's rest state and the marker setting).</summary>
+                public bool RestMarkersShown
+                {
+                    set
+                    {
+                        if (restMarkersShown == value)
+                            return;
+
+                        restMarkersShown = value;
+                        placedGaps = null;
+                        applyRestMarkerAlpha();
+                    }
+                }
+
+                public IEnumerable<Drawable> VisibleRestMarkers => restMarkers.Where(m => m.Alpha > 0);
+
+                public Drawable CharacterDrawable(int index) => TextFlow.Children[index];
+
+                public FillFlowContainer TextFlowDrawable => TextFlow;
+
+                private void applyRestMarkerAlpha()
+                {
+                    for (int i = 0; i < restMarkers.Count; i++)
+                        restMarkers[i].Alpha = restMarkersShown && i < restGaps.Length ? 1 : 0;
+                }
+
+                protected override void UpdateAfterChildren()
+                {
+                    base.UpdateAfterChildren();
+
+                    // The flow has laid its characters out by now (it is a child), so their left
+                    // edges are final for this frame.
+                    if (!restMarkersShown || restGaps.Length == 0)
+                        return;
+
+                    var flow = TextFlow;
+                    var characters = flow.Children;
+
+                    if (characters.Count != Text.Length)
+                        return;
+
+                    if (ReferenceEquals(placedText, Text) && ReferenceEquals(placedGaps, restGaps)
+                                                           && placedFlowSize == flow.DrawSize && placedContainerHeight == TextContainer.DrawHeight)
+                        return;
+
+                    // The vertical rule is gameplay's (LyricLineDisplay.SyllableMarkerGeometry): hung
+                    // from the bottom of the glyph row. The row has no sweep rail, so the band the
+                    // clamp keeps the mark inside is what is left of the box below the glyph row.
+                    float glyphHeight = flow.DrawHeight;
+                    float flowTop = flow.DrawPosition.Y;
+                    float band = TextContainer.DrawHeight - (flowTop + glyphHeight);
+                    var geometry = LyricLineDisplay.SyllableMarkerGeometry(glyphHeight, band);
+
+                    for (int k = 0; k < restGaps.Length; k++)
+                    {
+                        int gap = restGaps[k];
+
+                        if (gap <= 0 || gap >= characters.Count)
+                            continue;
+
+                        restMarkers[k].Size = new Vector2(geometry.Width, geometry.Height);
+                        restMarkers[k].Position = new Vector2(flow.DrawPosition.X + characters[gap].DrawPosition.X, flowTop + geometry.Top);
+                    }
+
+                    placedText = Text;
+                    placedGaps = restGaps;
+                    placedFlowSize = flow.DrawSize;
+                    placedContainerHeight = TextContainer.DrawHeight;
+                }
+
+                protected override bool OnMouseDown(MouseDownEvent e)
+                {
+                    // The framework's own rule (the character whose midpoint the pointer is past),
+                    // read against the REST text the click was made on.
+                    if (!HasFocus)
+                    {
+                        float x = TextFlow.ToLocalSpace(e.ScreenSpaceMousePosition).X;
+                        int index = 0;
+
+                        foreach (var character in TextFlow.Children)
+                        {
+                            if (character.DrawPosition.X + character.DrawSize.X / 2 > x)
+                                break;
+
+                            index++;
+                        }
+
+                        pendingRestCaret = index;
+                    }
+
+                    return base.OnMouseDown(e);
+                }
+
+                protected override void OnFocus(FocusEvent e)
+                {
+                    base.OnFocus(e);
+
+                    int? restCaret = pendingRestCaret;
+                    pendingRestCaret = null;
+
+                    string edit = CommittedText();
+
+                    if (Text == edit)
+                        return;
+
+                    // A click re-maps onto the pipe form only when the box really was showing that
+                    // form's rest text; anything else (a tab focus) leaves the caret at the end.
+                    bool remap = restCaret != null && RestTextOf(edit) == Text;
+
+                    Text = edit;
+
+                    if (remap)
+                    {
+                        placingCaret = true;
+                        MoveCursorBy(-Text.Length);
+                        MoveCursorBy(PipeCaretFor(edit, restCaret!.Value));
+                        placingCaret = false;
+                    }
+                }
+
+                protected override void OnCaretMoved(bool selecting)
+                {
+                    // The re-map is part of the click, which already gave its feedback.
+                    if (!placingCaret)
+                        base.OnCaretMoved(selecting);
+                }
 
                 public override bool OnPressed(KeyBindingPressEvent<PlatformAction> e)
                 {
