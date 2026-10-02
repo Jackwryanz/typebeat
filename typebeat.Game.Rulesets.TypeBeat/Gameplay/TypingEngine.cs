@@ -1256,6 +1256,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 alignSubdivisionTargets = value;
                 foreach (var line in lines)
                     line.SetAlignedSubdivisionTargets(value);
+
+                // The rush cap's playhead reads the cells' TargetTimes through a cached, sorted copy;
+                // a swap of the targets that left it on the old era would measure the cap (and
+                // RushCapCostsAccuracy's Meh) against targets this run is not judged on.
+                rebuildCountableTargets();
             }
         }
 
@@ -1709,8 +1714,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         // cells (typeable and not a space), which is the currency the rush cap measures in.
         // countableTargets: every countable cell's target time, sorted ascending, so the playhead's
         // position is a binary search. countableBase[k] / countablePrefix[k][i]: where line k, cell i
-        // sits in that stream, so the caret's position is a lookup. All immutable after construction.
-        private readonly double[] countableTargets;
+        // sits in that stream, so the caret's position is a lookup. The base and prefix are immutable
+        // after construction (which cells count never changes); countableTargets is rebuilt by
+        // rebuildCountableTargets whenever AlignSubdivisionTargets swaps the cells' target times.
+        private double[] countableTargets = Array.Empty<double>();
         private readonly int[] countableBase;
         private readonly int[][] countablePrefix;
 
@@ -1847,12 +1854,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             countableBase = new int[lines.Count];
             countablePrefix = new int[lines.Count][];
-            var targets = new List<double>();
+            int countable = 0;
 
             for (int k = 0; k < lines.Count; k++)
             {
                 var cells = lines[k].Cells;
-                countableBase[k] = targets.Count;
+                countableBase[k] = countable;
                 var prefix = new int[cells.Count + 1];
 
                 for (int i = 0; i < cells.Count; i++)
@@ -1863,10 +1870,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         continue;
 
                     prefix[i + 1]++;
-                    targets.Add(cells[i].TargetTime);
+                    countable++;
                 }
 
                 countablePrefix[k] = prefix;
+            }
+
+            rebuildCountableTargets();
+        }
+
+        /// <summary>
+        /// Re-read every countable cell's CURRENT target time into <see cref="countableTargets"/>.
+        /// Called at construction and again whenever <see cref="AlignSubdivisionTargets"/> swaps the
+        /// cells between the legacy and the aligned targets, so the playhead the rush cap measures
+        /// against is always the one this run is judged on.
+        /// </summary>
+        private void rebuildCountableTargets()
+        {
+            var targets = new List<double>();
+
+            foreach (var line in lines)
+            {
+                foreach (var cell in line.Cells)
+                {
+                    if (cell.IsCountable)
+                        targets.Add(cell.TargetTime);
+                }
             }
 
             // Overlapping lines can interleave their targets across a boundary, so sort rather than

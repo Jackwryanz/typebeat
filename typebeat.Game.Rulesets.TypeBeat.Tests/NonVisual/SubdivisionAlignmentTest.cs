@@ -159,6 +159,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(cell.TargetTime, Is.EqualTo(oldTarget));
         }
 
+        [TestCase(185100.0, 5)]
+        [TestCase(186100.0, 8)]
+        [TestCase(189000.0, 16)]
+        public void RushCapPlayheadFollowsTheTargetEra(double time, int alignedCount)
+        {
+            // Built legacy and flipped, the path a replay header takes: the playhead the rush cap
+            // measures against must track the targets the cells actually carry after the swap.
+            var e = engine(OverdoneLine(), false);
+            int legacyCount = countableAtOrBefore(e, time);
+            Assert.That(e.PlayheadCountablePosition(time), Is.EqualTo(legacyCount), "legacy era");
+
+            e.AlignSubdivisionTargets = true;
+            Assert.That(countableAtOrBefore(e, time), Is.EqualTo(alignedCount), "aligned targets cross-check");
+            Assert.That(e.PlayheadCountablePosition(time), Is.EqualTo(alignedCount), "aligned era");
+            Assert.That(legacyCount, Is.Not.EqualTo(alignedCount), "the fixture separates the two eras");
+
+            e.AlignSubdivisionTargets = false;
+            Assert.That(e.PlayheadCountablePosition(time), Is.EqualTo(legacyCount), "back to legacy");
+
+            Assert.That(engine(OverdoneLine(), true).PlayheadCountablePosition(time), Is.EqualTo(alignedCount), "built aligned");
+        }
+
+        private static int countableAtOrBefore(TypingEngine e, double time)
+            => e.Lines.SelectMany(l => l.Cells).Count(c => c.IsCountable && c.TargetTime <= time);
+
         [TestCase(false, false)]
         [TestCase(false, true)]
         [TestCase(true, false)]
