@@ -695,6 +695,35 @@ namespace typebeat.Game.Beatmaps
             transaction.Commit();
         });
 
+        /// <summary>
+        /// The stored aligner vocal mode of a beatmap set (see <see cref="BeatmapSetInfo.AlignerVocalMode"/>),
+        /// read through realm for the same reason as <see cref="GetIntroPoolInclusion"/>. A set realm does not
+        /// hold (a new map not yet saved) reads as <see cref="AlignerVocalMode.Aligned"/>.
+        /// </summary>
+        public AlignerVocalMode GetAlignerVocalMode(BeatmapSetInfo beatmapSetInfo)
+            => Realm.Run(r => r.Find<BeatmapSetInfo>(beatmapSetInfo.ID)?.AlignerVocalMode ?? AlignerVocalMode.Aligned);
+
+        /// <summary>
+        /// Stores the aligner vocal mode of a beatmap set. Writes realm only, never a beatmap file, so the
+        /// choice re-encodes nothing. A set realm does not hold is left alone.
+        /// </summary>
+        public void SetAlignerVocalMode(BeatmapSetInfo beatmapSetInfo, AlignerVocalMode mode) => SetAlignerVocalMode(beatmapSetInfo.ID, mode);
+
+        /// <inheritdoc cref="SetAlignerVocalMode(BeatmapSetInfo, AlignerVocalMode)"/>
+        public void SetAlignerVocalMode(Guid beatmapSetId, AlignerVocalMode mode) => Realm.Run(r =>
+        {
+            var beatmapSet = r.Find<BeatmapSetInfo>(beatmapSetId);
+
+            if (beatmapSet == null)
+                return;
+
+            using var transaction = r.BeginWrite();
+
+            beatmapSet.AlignerVocalMode = mode;
+
+            transaction.Commit();
+        });
+
         #region Implementation of ICanAcceptFiles
 
         public Task Import(params string[] paths) => beatmapImporter.Import(paths);
@@ -703,6 +732,18 @@ namespace typebeat.Game.Beatmaps
 
         public Task<IEnumerable<Live<BeatmapSetInfo>>> Import(ProgressNotification notification, ImportTask[] tasks, ImportParameters parameters = default) =>
             beatmapImporter.Import(notification, tasks, parameters);
+
+        /// <summary>
+        /// Imports archives exactly as <see cref="Import(ImportTask[], ImportParameters)"/> does (one posted
+        /// progress notification), but hands back the imported sets, for a caller that stores user data on
+        /// them afterwards (the song importer's aligner vocal mode).
+        /// </summary>
+        public Task<IEnumerable<Live<BeatmapSetInfo>>> ImportReturningSets(params string[] paths)
+        {
+            var notification = new ProgressNotification { State = ProgressNotificationState.Active };
+            PostNotification?.Invoke(notification);
+            return Import(notification, paths.Select(p => new ImportTask(p)).ToArray());
+        }
 
         public Task<Live<BeatmapSetInfo>?> Import(ImportTask task, ImportParameters parameters = default, CancellationToken cancellationToken = default) =>
             beatmapImporter.Import(task, parameters, cancellationToken);

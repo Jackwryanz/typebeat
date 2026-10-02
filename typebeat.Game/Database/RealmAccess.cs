@@ -129,8 +129,11 @@ namespace typebeat.Game.Database
         ///                    background pass re-decodes the whole library once: imports never copied the
         ///                    file's Language, AudioGain, LyricFont and LyricFontFile onto the realm row, and
         ///                    the pass now heals them from the decode it already makes.
+        /// 61   2026-10-02    Added AlignerVocalMode to BeatmapSetInfo (the mapper's per-set choice of how the
+        ///                    local auto-aligner times the words). No migration body: the column's realm
+        ///                    default (0) is AlignerVocalMode.Aligned, what every existing set already means.
         /// </summary>
-        private const int schema_version = 60;
+        private const int schema_version = 61;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.

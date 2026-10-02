@@ -55,6 +55,9 @@ namespace typebeat.Game.Database
              // User data, like BeatmapInfo.UserSettings above: a detached copy taken before a song select
              // toggle must not write the stale value back on an editor save.
              .ForMember(s => s.IntroPoolInclusion, cc => cc.Ignore())
+             // The same for the aligner vocal mode, both its typed face and its stored column.
+             .ForMember(s => s.AlignerVocalMode, cc => cc.Ignore())
+             .ForMember(s => s.AlignerVocalModeInt, cc => cc.Ignore())
              .AfterMap((s, d) =>
              {
                  foreach (var beatmap in s.Beatmaps)

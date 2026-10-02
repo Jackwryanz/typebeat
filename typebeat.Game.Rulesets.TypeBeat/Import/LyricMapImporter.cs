@@ -597,7 +597,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token,
             bool useAutomaticAlignment = true, IAudioTrackExtractor? audioExtractor = null, string? language = null,
-            bool highQualityAlignment = false)
+            bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
         {
             if (!File.Exists(audioPath))
                 return LyricImportResult.Fail($"audio file not found: {audioPath}");
@@ -666,7 +666,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             (LyricImportResult result, string? timing) = await ProduceTimingJsonAsync(
                 effectiveAudioPath, lyricsContent, artist, title, configuredLyricLabPath, startDirectories, progress, token, useAutomaticAlignment,
-                language, highQualityAlignment).ConfigureAwait(false);
+                language, highQualityAlignment, vocalMode).ConfigureAwait(false);
 
             if (!result.Success || timing == null)
                 return result;
@@ -702,12 +702,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <remarks>The optional language is the one non-Latin lyrics are romanised under (backlog
         /// 330): the map's own when the caller has one, else null to detect it from the lyrics'
         /// script. <paramref name="highQualityAlignment"/> runs the aligner at its full tier (see
-        /// <see cref="AlignerArguments"/>) and changes nothing on the TTML or line-stamp paths.</remarks>
+        /// <see cref="AlignerArguments"/>) and changes nothing on the TTML or line-stamp paths;
+        /// <paramref name="vocalMode"/> is the map set's stored aligner vocal mode, which likewise
+        /// reaches only the aligner's command line.</remarks>
         public static async Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true,
-            string? language = null, bool highQualityAlignment = false)
+            string? language = null, bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
         {
             language ??= LyricOriginals.DetectLanguage(new[] { lyricsContent });
 
@@ -798,7 +800,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 try
                 {
                     (LyricImportResult alignerResult, string? timingJson) = await runAlignerAsync(
-                        lyricLabDir!, audioPath, lyricsTemp, artist, title, lyricsContent, highQualityAlignment, progress, token).ConfigureAwait(false);
+                        lyricLabDir!, audioPath, lyricsTemp, artist, title, lyricsContent, highQualityAlignment, vocalMode, progress, token).ConfigureAwait(false);
 
                     if (alignerResult.Success && timingJson != null)
                     {
@@ -901,9 +903,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// the offered update. Off, NOTHING is added rather than <c>--quality fast</c>: the script's
         /// own default is fast, and leaving the flag out keeps the ordinary run's command line
         /// exactly what an older script already accepts.</para>
+        ///
+        /// <para><paramref name="vocalMode"/> <see cref="AlignerVocalMode.Estimated"/> adds
+        /// <c>--vocal-mode estimated</c> on the same terms: only when the script is version 7 or newer
+        /// (<see cref="AlignerHasVocalModes"/>), and only when the lyrics carry a line stamp, since the
+        /// mode paces every line from its stamp (the script would ignore it on bare text anyway, and
+        /// leaving it out keeps that command line the one every version accepts).
+        /// <see cref="AlignerVocalMode.Aligned"/> adds nothing.</para>
         /// </summary>
         public static IReadOnlyList<string> AlignerArguments(
-            string lyricLabDir, string audioPath, string lyricsPath, string outDir, string lyricsContent, bool highQuality)
+            string lyricLabDir, string audioPath, string lyricsPath, string outDir, string lyricsContent, bool highQuality,
+            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
         {
             var args = new List<string> { aligner_script, audioPath, lyricsPath, "-o", outDir };
 
@@ -928,11 +938,76 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 args.Add("full");
             }
 
+            if (EstimatedVocalsApply(lyricLabDir, lyricsContent, vocalMode))
+            {
+                args.Add("--vocal-mode");
+                args.Add("estimated");
+            }
+
             return args;
         }
 
+        /// <summary>
+        /// Whether a run asked for <paramref name="vocalMode"/> actually passes
+        /// <c>--vocal-mode estimated</c>: the mode is <see cref="AlignerVocalMode.Estimated"/>, the
+        /// lyrics carry at least one line stamp, and the script accepts the flag.
+        /// </summary>
+        public static bool EstimatedVocalsApply(string lyricLabDir, string lyricsContent, AlignerVocalMode vocalMode)
+            => vocalMode == AlignerVocalMode.Estimated && HasAnyLineStamp(lyricsContent) && AlignerHasVocalModes(lyricLabDir);
+
         /// <summary>The first aligner version with evidence tiers (<c>--quality</c>).</summary>
         public const int QUALITY_TIERS_ALIGNER_VERSION = 6;
+
+        /// <summary>The first aligner version with <c>--vocal-mode</c> (backlog 354).</summary>
+        public const int VOCAL_MODE_ALIGNER_VERSION = 7;
+
+        /// <summary>
+        /// Whether the aligner script in <paramref name="lyricLabDir"/> accepts <c>--vocal-mode</c>,
+        /// read off its version exactly as <see cref="AlignerHasQualityTiers"/> reads it.
+        /// </summary>
+        public static bool AlignerHasVocalModes(string lyricLabDir) => alignerVersionAtLeast(lyricLabDir, VOCAL_MODE_ALIGNER_VERSION);
+
+        private static bool alignerVersionAtLeast(string lyricLabDir, int minimum)
+            => int.TryParse(ReadAlignerVersion(lyricLabDir), NumberStyles.None, CultureInfo.InvariantCulture, out int version)
+               && version >= minimum;
+
+        /// <summary>
+        /// Said when estimated vocals are chosen but the installed aligner predates them. Worded, like
+        /// <see cref="HIGH_QUALITY_NEEDS_UPDATE"/>, to claim no stage in ImportProgressParser.
+        /// </summary>
+        public const string ESTIMATED_VOCALS_NEEDS_UPDATE = "estimated vocals need a newer install, update it in Settings > Experimental; "
+                                                            + "this import times the words from the audio";
+
+        /// <summary>Said when estimated vocals are chosen for lyrics with no line stamp to pace from.</summary>
+        public const string ESTIMATED_VOCALS_NEED_STAMPS = "estimated vocals need [mm:ss.xx] line stamps to pace from; "
+                                                           + "this import times the words from the audio";
+
+        /// <summary>Said when estimated vocals are on for a run.</summary>
+        public const string ESTIMATED_VOCALS_ON = "estimated vocals on, every line is paced evenly from its stamp";
+
+        /// <summary>
+        /// The progress line an aligner run asked for <paramref name="vocalMode"/> says up front: null
+        /// for <see cref="AlignerVocalMode.Aligned"/>, else whether estimated vocals are on or why this
+        /// run cannot honour them (no line stamp, checked first since an update would not help; an
+        /// install older than <see cref="VOCAL_MODE_ALIGNER_VERSION"/>).
+        /// </summary>
+        public static string? EstimatedVocalsNotice(string lyricLabDir, string lyricsContent, AlignerVocalMode vocalMode)
+        {
+            if (vocalMode != AlignerVocalMode.Estimated)
+                return null;
+
+            if (!HasAnyLineStamp(lyricsContent))
+                return ESTIMATED_VOCALS_NEED_STAMPS;
+
+            if (!AlignerHasVocalModes(lyricLabDir))
+            {
+                Logger.Log($"Estimated vocals are chosen but the aligner in {lyricLabDir} is version {ReadAlignerVersion(lyricLabDir) ?? "1"}, "
+                           + "which has no --vocal-mode; running its default", LoggingTarget.Runtime, LogLevel.Important);
+                return ESTIMATED_VOCALS_NEEDS_UPDATE;
+            }
+
+            return ESTIMATED_VOCALS_ON;
+        }
 
         /// <summary>
         /// Whether the aligner script in <paramref name="lyricLabDir"/> accepts <c>--quality</c>:
@@ -940,9 +1015,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <see cref="QUALITY_TIERS_ALIGNER_VERSION"/>. False for anything unreadable, so an
         /// unknown script gets the command line every version accepts.
         /// </summary>
-        public static bool AlignerHasQualityTiers(string lyricLabDir)
-            => int.TryParse(ReadAlignerVersion(lyricLabDir), NumberStyles.None, CultureInfo.InvariantCulture, out int version)
-               && version >= QUALITY_TIERS_ALIGNER_VERSION;
+        public static bool AlignerHasQualityTiers(string lyricLabDir) => alignerVersionAtLeast(lyricLabDir, QUALITY_TIERS_ALIGNER_VERSION);
 
         /// <summary>
         /// Said when the high-accuracy setting is on but the installed aligner predates it. Worded
@@ -955,7 +1028,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <summary>Runs the aligner subprocess and returns the produced timing.json text on success.</summary>
         private static async Task<(LyricImportResult Result, string? TimingJson)> runAlignerAsync(
             string lyricLabDir, string audioPath, string lyricsPath, string artist, string title,
-            string lyricsContent, bool highQuality, Action<string> progress, CancellationToken token)
+            string lyricsContent, bool highQuality, AlignerVocalMode vocalMode, Action<string> progress, CancellationToken token)
         {
             string python = PythonExeFor(lyricLabDir);
             string outDir = Path.Combine(lyricLabDir, "out", "typebeat_import_" + SanitizeFolderName($"{artist} - {title}"));
@@ -977,7 +1050,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string existingPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
             psi.Environment["PATH"] = venvBin + Path.PathSeparator + existingPath;
 
-            foreach (string arg in AlignerArguments(lyricLabDir, audioPath, lyricsPath, outDir, lyricsContent, highQuality))
+            foreach (string arg in AlignerArguments(lyricLabDir, audioPath, lyricsPath, outDir, lyricsContent, highQuality, vocalMode))
                 psi.ArgumentList.Add(arg);
 
             if (AlignerAnchorMode(lyricsContent) == "auto")
@@ -1000,6 +1073,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     progress(HIGH_QUALITY_NEEDS_UPDATE);
                 }
             }
+
+            // The map set's estimated vocals choice (backlog 354), said up front because the result
+            // looks nothing like an aligned one. A choice the run cannot honour says why instead.
+            string? vocalModeNotice = EstimatedVocalsNotice(lyricLabDir, lyricsContent, vocalMode);
+
+            if (vocalModeNotice != null)
+                progress(vocalModeNotice);
 
             (int exitCode, string tail) = await RunProcessAsync(psi, progress, token).ConfigureAwait(false);
 

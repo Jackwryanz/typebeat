@@ -40,6 +40,13 @@ namespace typebeat.Game.Screens.ImportLyrics
     {
         public override bool HideOverlaysOnEnter => true;
 
+        /// <summary>
+        /// The estimated vocals choice's label (backlog 354), shared with the editor's re-align so the two
+        /// places say the same thing. Only meaningful with automatic alignment, so it is disabled without it.
+        /// </summary>
+        public const string ESTIMATED_VOCALS_LABEL = "estimated vocals (when the aligned words come out wrong, e.g. screamed or effect-heavy vocals: "
+                                                     + "pace every line evenly from its [mm:ss.xx] stamp instead; remembered for this map)";
+
         [Resolved]
         private OsuGameBase game { get; set; } = null!;
 
@@ -48,6 +55,9 @@ namespace typebeat.Game.Screens.ImportLyrics
 
         [Resolved(CanBeNull = true)]
         private IDialogOverlay? dialogOverlay { get; set; }
+
+        [Resolved(CanBeNull = true)]
+        private BeatmapManager? beatmaps { get; set; }
 
         [Cached]
         private OverlayColourProvider colourProvider = new OverlayColourProvider(OverlayColourScheme.Purple);
@@ -63,6 +73,7 @@ namespace typebeat.Game.Screens.ImportLyrics
         private LabelledTextBox titleBox = null!;
         private FormEnumDropdown<BeatmapLanguage> languageDropdown = null!;
         private OsuCheckbox automaticAlignmentCheckbox = null!;
+        private OsuCheckbox estimatedVocalsCheckbox = null!;
         private RoundedButton importButton = null!;
         private OsuSpriteText statusText = null!;
         private ImportProgressDisplay progressDisplay = null!;
@@ -135,6 +146,12 @@ namespace typebeat.Game.Screens.ImportLyrics
                                     LabelText = "automatic alignment (time each word from the audio, slower, needs the local auto-aligner; off = use your [mm:ss.xx] line stamps)",
                                     Current = { Value = false },
                                 },
+                                estimatedVocalsCheckbox = new OsuCheckbox
+                                {
+                                    RelativeSizeAxes = Axes.X,
+                                    LabelText = ESTIMATED_VOCALS_LABEL,
+                                    Current = { Value = false },
+                                },
                                 importButton = new RoundedButton
                                 {
                                     Text = "import",
@@ -161,6 +178,16 @@ namespace typebeat.Game.Screens.ImportLyrics
         {
             base.LoadComplete();
             languageDropdown.Current.BindValueChanged(_ => updateImportButton());
+
+            // Estimated vocals only change how the aligner runs, so without automatic alignment there is
+            // nothing for them to change: the choice goes dead (and off) rather than being silently ignored.
+            automaticAlignmentCheckbox.Current.BindValueChanged(auto =>
+            {
+                if (!auto.NewValue)
+                    estimatedVocalsCheckbox.Current.Value = false;
+                estimatedVocalsCheckbox.Current.Disabled = !auto.NewValue;
+            }, true);
+
             AddFiles(initialFiles);
         }
 
@@ -241,6 +268,7 @@ namespace typebeat.Game.Screens.ImportLyrics
             string artist = string.IsNullOrWhiteSpace(artistBox.Current.Value) ? "Unknown" : artistBox.Current.Value;
             string title = string.IsNullOrWhiteSpace(titleBox.Current.Value) ? "Imported Map" : titleBox.Current.Value;
             bool useAutomaticAlignment = automaticAlignmentCheckbox.Current.Value;
+            AlignerVocalMode vocalMode = useAutomaticAlignment && estimatedVocalsCheckbox.Current.Value ? AlignerVocalMode.Estimated : AlignerVocalMode.Aligned;
             BeatmapLanguage language = languageDropdown.Current.Value;
 
             var cancellation = importCancellation = new CancellationTokenSource();
@@ -257,7 +285,7 @@ namespace typebeat.Game.Screens.ImportLyrics
                 try
                 {
                     result = await importer.BuildOszAsync(audioPath, lyricsPath, artist, title,
-                        line => Schedule(() => report(line)), cancellation.Token, useAutomaticAlignment, language).ConfigureAwait(false);
+                        line => Schedule(() => report(line)), cancellation.Token, useAutomaticAlignment, language, vocalMode).ConfigureAwait(false);
                 }
                 catch (Exception e)
                 {
@@ -267,7 +295,19 @@ namespace typebeat.Game.Screens.ImportLyrics
                 if (result.Success && result.OszPath != null)
                 {
                     Schedule(() => report("importing beatmap"));
-                    await game.Import(result.OszPath).ConfigureAwait(false);
+
+                    if (vocalMode != AlignerVocalMode.Aligned && beatmaps != null)
+                    {
+                        // The estimated vocals choice is remembered on the imported SET (realm user data,
+                        // never in the package), so the editor's re-align runs the same way. That needs
+                        // the set back, which the global file route does not return, so this one import
+                        // goes to the beatmap manager directly, through the same notification path. An
+                        // aligned import (every set's default) keeps the global route unchanged.
+                        foreach (var set in await beatmaps.ImportReturningSets(result.OszPath).ConfigureAwait(false))
+                            beatmaps.SetAlignerVocalMode(set.ID, vocalMode);
+                    }
+                    else
+                        await game.Import(result.OszPath).ConfigureAwait(false);
 
                     // The import SUMMARY (backlog 330): words the romaniser could not spell. The
                     // screen slides away on success, so it is raised as a notification that outlives

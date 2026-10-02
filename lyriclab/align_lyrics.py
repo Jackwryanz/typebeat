@@ -33,6 +33,9 @@ Pipeline:
                        whole song, run twice around the song's measured pace;
                        lines without evidence are flagged "estimated"
        --anchors none  single global pass
+       --vocal-mode estimated (version 7, a stamped file only, chosen per song)
+                       no acoustic path: every line paced evenly from its
+                       stamp plus the song's stamp lead
   7. char spans -> syllables (authored hyphens first, else pyphen + naive
      fallback) -> words -> lines; end times extended through sustained
      voiced audio (RMS gate); a validator repairs/rejects impossible output
@@ -161,6 +164,19 @@ abbreviated lyric sheet (each chorus written once) gains about +6 instead of +14
 leading '*' lets an unheard slow opening drift late (slow choral songs); the voiced '*' can drag
 unstamped lines across a long instrumental inside a sparse section. Inputs with more words than the
 audio has milliseconds still fail the output validator, as they must.
+
+Version 7 (2026-10-02): --vocal-mode estimated (backlog 354), a mapper-chosen per-song mode for
+vocals the acoustic model cannot follow. Every line of a stamped file is paced evenly from its stamp
+plus the song's stamp lead at the song's median letter length (align_estimated_mode); the emissions
+are read only by the stamped decoder's unbiased first pass, for those two numbers, and no CTC path is
+kept. It is never a default and never an automatic fallback: on the ranked corpus (85 maps, 20.8k
+words, single-tier emissions, word starts within 200 ms) it scores 60.66% under exact stamps against
+the stamped decoder's 91.69%, and 56.02% against 90.58% under human stamps. Its case is the
+Shinigiwa class: Shinigiwa Satellite 55.0% -> 75.2% (exact) and 51.3% -> 59.3% (human), where backlog
+346 measured version 5's even-pacing oracle at 71.9% and about 52%; Now Is Gold 57.3% -> 59.1% exact
+but 54.3% -> 52.4% human, so its value tracks stamp quality. The first pass earns its cost: without
+it (80 ms a letter, no lead) Shinigiwa falls to 54.6% (exact) and 10.9% (human). Without the flag
+every output is version 6's; the version is bumped so the game knows the flag exists.
 """
 
 import os
@@ -214,7 +230,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 
 # Bumped when the output of the same inputs changes. The game compares the shipped copy's
 # version with the installed one and offers a reinstall; `--version` prints it.
-ALIGNER_VERSION = "6"
+ALIGNER_VERSION = "7"
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 320          # wav2vec2 stride: 20 ms at 16 kHz
@@ -3693,12 +3709,10 @@ def left_walls(fw, char_dur, sig_f, stamped):
     return line_left, line_mu
 
 
-def align_ref(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_dic="en_US"):
-    """
-    Any stamped file: the STAMPED decoder (see the section comment above). Works in float32 on the
-    emission tensor and reads prob and margin off it. May raise; align_ref_mode is the entry point
-    that never does. pyphen_dic: see pacing_pyphen.
-    """
+def ref_context(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_dic="en_US"):
+    """The stamped decoder's per-call context: the sections, their windows, the emissions in both
+    forms and the cell budget, with the joint pass's share reserved. Shared by align_ref and the
+    estimated vocal mode's first pass, which reads the song's pace and stamp lead off it."""
     T = log_probs.size(0)
     lp = log_probs.detach().cpu().numpy()   # a view; never written
     sections = ref_sections(lines)
@@ -3715,6 +3729,17 @@ def align_ref(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_
     est = sum((f1 - f0 + 70) * (2 * sum(len(w.norm) for i in sec for w in lines[i].words) + 2 * len(sec) + 1)
               for (f0, f1), sec in zip(windows, sections))
     ctx["reserve"] = float(min(est, REF["CELL_LIMIT"]))
+    return ctx
+
+
+def align_ref(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_dic="en_US"):
+    """
+    Any stamped file: the STAMPED decoder (see the section comment above). Works in float32 on the
+    emission tensor and reads prob and margin off it. May raise; align_ref_mode is the entry point
+    that never does. pyphen_dic: see pacing_pyphen.
+    """
+    ctx = ref_context(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_dic)
+    sections, windows = ctx["sections"], ctx["windows"]
     per_word = first_pass(ctx)
     char_dur = median_char_dur_frames(per_word, lines)
     pairs = opener_leads(lines, sections, windows, per_word)
@@ -3783,6 +3808,66 @@ def align_ref_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, ch
     return per_word
 
 
+def even_from_stamps(lines, sections, windows, char_dur, lead):
+    """
+    The estimated vocal mode's layout (version 7): every line paced evenly at the song's letter
+    length `char_dur` (frames) from where its section opens, its stamp plus the song's stamp lead
+    `lead` (frames; the leading unstamped section opens at its window, the top of the song), and
+    squeezed into its window when it would not fit (synthesize_line_spans). The lines of a sparse
+    section share the room from that start to the next stamp by letter count, as even_fallback
+    shares it. Every placed line is flagged estimated. Standard library only.
+    """
+    per_word = {}
+    for (f0, f1), sec in zip(windows, sections):
+        idx = [i for i in sec if any(not w.untimed for w in lines[i].words)]
+        if not idx:
+            continue
+        start = f0 + lead if lines[sec[0]].ref_ms is not None else f0
+        start = max(f0, min(start, f1 - 10))
+        counts = [max(1, sum(len(w.norm) for w in lines[i].words if not w.untimed)) for i in idx]
+        at = float(start)
+        for i, n in zip(idx, counts):
+            nxt = at + (f1 - start) * n / sum(counts)
+            synthesize_line_spans(lines[i], i, int(round(at)), int(round(nxt)), char_dur, per_word)
+            at = nxt
+    return per_word
+
+
+def align_estimated_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_dic="en_US"):
+    """
+    --vocal-mode estimated (version 7, backlog 354): the mapper's choice for a song whose vocals the
+    acoustic model cannot follow (screamed, effect-heavy, Shinigiwa-class), never a default and never
+    an automatic fallback. No CTC path is kept: every stamped line is paced evenly from its stamp
+    plus the song's stamp lead (even_from_stamps). The emissions are still read once, by the stamped
+    decoder's unbiased first pass, for the two song-level numbers the layout needs and nothing else:
+    the median letter length and the robust stamp lead (robust_median over the confident section
+    openers, as the garbage-path replacement uses it, floored at 0). Without them (80 ms a letter, no
+    lead) it loses 4 to 25 points pooled and most of its Shinigiwa gain. Its value tracks stamp
+    quality; see the module docstring's version 7 entry for the numbers. Never raises: when the
+    first pass fails, the layout runs at 80 ms a letter and no lead.
+    """
+    T = log_probs.size(0)
+    char_dur, lead = 4.0, 0.0
+    try:
+        if star_id is None:
+            raise RuntimeError("no '*' in the dictionary")
+        ctx = ref_context(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_dic)
+        first = first_pass(ctx)
+        char_dur = median_char_dur_frames(first, lines)
+        lead = max(0.0, robust_median(opener_leads(lines, ctx["sections"], ctx["windows"], first),
+                                      REF["LEAD_MARGIN"], REF["LEAD_MIN_N"]))
+    except Exception as exc:
+        if REF["RAISE"]:
+            raise
+        log(f"first pass failed ({type(exc).__name__}: {exc}); pacing at 80 ms a letter with no stamp lead")
+    sections = ref_sections(lines)
+    windows = window_bounds(lines, sections, ref_end_ms, T)
+    log(f"estimated vocals: every line paced evenly from its stamp; stamp lead {lead * FRAME_SEC * 1000:.0f} ms, "
+        f"{char_dur * FRAME_SEC * 1000:.0f} ms a letter")
+    per_word = even_from_stamps(lines, sections, windows, char_dur, lead)
+    return sanitize(lines, per_word, T)
+
+
 def align_auto_mode(lines, log_probs, dictionary, star_id, voiced, char_dur_holder=None):
     """
     --anchors auto (plain lyrics): the version 6 AUTO decoder (align_auto), which never raises and
@@ -3835,6 +3920,33 @@ def self_test_even_letters() -> int:
             Line(display="x", words=[Word(display="ab", norm="ab"), Word(display="?", untimed=True),
                                      Word(display="c", norm="c")]), 0, 100, 4.0), [0.0, 4.0, 12.0]),
         ("even: nothing alignable", even_letter_frames(line(""), 0, 100, 4.0), []),
+    ])
+
+
+def self_test_estimated() -> int:
+    """Pins even_from_stamps, the estimated vocal mode's layout: word start frames per line."""
+    def line(ref, *norms):
+        return Line(display="x", ref_ms=ref, words=[Word(display=n, norm=n) for n in norms])
+
+    def starts(lines, sections, windows, char_dur, lead):
+        pw = even_from_stamps(lines, sections, windows, char_dur, lead)
+        return [[pw[(li, wi)][0][0] for wi in range(len(ln.words)) if (li, wi) in pw] for li, ln in enumerate(lines)]
+
+    two = [line(0.0, "ab", "c"), line(2000.0, "d")]
+    sparse = [line(0.0, "ab"), line(None, "cd")]
+    flagged = [line(0.0, "ab")]
+    even_from_stamps(flagged, [[0]], [(0, 100)], 4.0, 0.0)
+    return _check_all("estimated", [
+        # 4 frames a letter and 4 between words, from the stamp plus the lead
+        ("estimated: stamp + lead", starts(two, [[0], [1]], [(0, 100), (100, 200)], 4.0, 5.0), [[5, 17], [105]]),
+        ("estimated: no lead", starts(two, [[0], [1]], [(0, 100), (100, 200)], 4.0, 0.0), [[0, 12], [100]]),
+        # a lead that leaves no room starts 10 frames before the next stamp and squeezes the line
+        ("estimated: squeezed", starts([line(0.0, "ab", "c")], [[0]], [(0, 20)], 4.0, 15.0), [[10, 18]]),
+        # the leading unstamped section opens at the top of the song, never at a lead
+        ("estimated: unstamped opener", starts([line(None, "ab")], [[0]], [(0, 100)], 4.0, 5.0), [[0]]),
+        # a sparse section's lines share the window by letter count
+        ("estimated: sparse section", starts(sparse, [[0, 1]], [(0, 100)], 4.0, 0.0), [[0], [50]]),
+        ("estimated: flagged", flagged[0].estimated, True),
     ])
 
 
@@ -3984,6 +4096,12 @@ def main():
                          "opens a section, unstamped lines join the section above them); "
                          "auto: the whole-song decoder for plain lyrics; none: single pass "
                          "(diagnostics). Default: ref when any line has a timestamp, else auto.")
+    ap.add_argument("--vocal-mode", choices=["aligned", "estimated"], default="aligned",
+                    help="aligned: the anchor mode's decoder (default); estimated: a stamped file's "
+                         "lines are paced evenly from their stamps (plus the song's stamp lead) and "
+                         "no acoustic path is kept, for vocals the model cannot follow. Chosen per "
+                         "song by the mapper; it scores far below aligned on ordinary songs. Needs "
+                         "line stamps: without any, the song is aligned as usual.")
     ap.add_argument("--language", default="en_US", help="pyphen hyphenation language")
     # "mid" works but is left out of the help: fast is the default and full the opt-in.
     ap.add_argument("--quality", choices=list(QUALITY_TIERS), default=DEFAULT_QUALITY,
@@ -4038,6 +4156,12 @@ def main():
         mode = "auto"
     stamped = f" ({n_stamped} of {len(lines)} lines stamped)" if mode == "ref" and n_stamped < len(lines) else ""
     log(f"lyrics: {len(lines)} lines, {n_words} words; anchor mode: {mode}{stamped}")
+    # The estimated vocal mode paces from the stamps, so it needs ref mode; anything else is aligned
+    # as usual and the output records the mode that actually ran.
+    vocal_mode = args.vocal_mode
+    if vocal_mode == "estimated" and mode != "ref":
+        log(f"WARNING: --vocal-mode estimated needs line stamps (anchor mode ref, here {mode}); aligning as usual")
+        vocal_mode = "aligned"
 
     # ---- audio prep
     song_wav = work / f"{stem}.wav"
@@ -4095,7 +4219,10 @@ def main():
     voiced = voiced_mask(rms)
 
     # ---- align per anchor mode (version 6: both decoders never raise; see their entry points)
-    if mode == "ref":
+    if vocal_mode == "estimated":
+        per_word = align_estimated_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced,
+                                        pyphen_dic=pyphen_dic)
+    elif mode == "ref":
         per_word = align_ref_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced,
                                   pyphen_dic=pyphen_dic)
     elif mode == "auto":
@@ -4116,6 +4243,8 @@ def main():
         "aligner": "torchaudio MMS_FA (wav2vec2 CTC forced alignment)",
         "aligner_version": ALIGNER_VERSION,
         "anchor_mode": mode,
+        # only when it ran, so an aligned run's engine block carries no new key
+        **({"vocal_mode": vocal_mode} if vocal_mode != "aligned" else {}),
         **evidence,
         "language": args.language,
         "offset_ms": args.offset_ms,
@@ -4147,6 +4276,8 @@ if __name__ == "__main__":
         sys.exit(self_test_even_letters())
     if "--self-test-spacing" in sys.argv:
         sys.exit(self_test_spacing())
+    if "--self-test-estimated" in sys.argv:
+        sys.exit(self_test_estimated())
     if "--self-test-late" in sys.argv:
         sys.exit(self_test_late())
     if "--self-test-band" in sys.argv:
@@ -4157,6 +4288,6 @@ if __name__ == "__main__":
         sys.exit(self_test_cache())
     if "--self-test" in sys.argv:
         sys.exit(max(self_test_syllables(), self_test_normalize(), self_test_sections(), self_test_garbage(),
-                     self_test_even_letters(), self_test_spacing(), self_test_late(), self_test_band(),
+                     self_test_even_letters(), self_test_estimated(), self_test_spacing(), self_test_late(), self_test_band(),
                      self_test_dup(), self_test_cache()))
     main()

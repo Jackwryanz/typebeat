@@ -54,6 +54,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Caption of the bundle toggle; also how tests find it.</summary>
         public const string BUNDLE_FONT_CAPTION = "Bundle font file with the map";
 
+        /// <summary>Caption of the estimated vocals toggle (backlog 354); also how tests find it.</summary>
+        public const string ESTIMATED_VOCALS_CAPTION = "Estimated vocals (pace lines from their stamps)";
+
         /// <summary>The picker item meaning "no map font": the game's built-in lyric font.</summary>
         public const string LYRIC_FONT_NONE = "None (built-in font)";
 
@@ -102,6 +105,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private FormNumberBox offsetBox = null!;
         private FormButton demoButton = null!;
         private FormFileSelector lyricsSelector = null!;
+        private FormCheckBox estimatedVocalsToggle = null!;
         private FormDropdown<string> fontDropdown = null!;
         private OsuSpriteText fontPreview = null!;
         private FormCheckBox bundleToggle = null!;
@@ -158,6 +162,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     ButtonText = "Generate timing",
                     Action = runImport,
                 },
+                estimatedVocalsToggle = new FormCheckBox
+                {
+                    Caption = ESTIMATED_VOCALS_CAPTION,
+                    HintText = "For vocals the auto-aligner cannot follow (screamed, effect-heavy): Generate timing paces every line evenly "
+                               + "from its [mm:ss.xx] stamp instead of following the audio. Needs line stamps and an up-to-date local "
+                               + "auto-aligner. Usually much worse on ordinary songs, so turn it on only when the aligned words are wrong. "
+                               + "Remembered for this map set on this machine; never uploaded.",
+                },
                 fontDropdown = new FormDropdown<string>
                 {
                     Caption = LYRIC_FONT_CAPTION,
@@ -192,6 +204,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             updateBundleNote(initialFamily);
             updateFontPreview(initialFamily);
 
+            // The set's stored aligner vocal mode (realm user data, see BeatmapSetInfo.AlignerVocalMode).
+            estimatedVocalsToggle.Current.Value = storedVocalMode() == AlignerVocalMode.Estimated;
+
             beatdropBox.OnCommit += (_, _) => commitBeatdrop();
 
             // Files with their own word timing are applied on arrival, whether selected or
@@ -208,6 +223,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             base.LoadComplete();
 
             fontDropdown.Current.BindValueChanged(e => fontChanged(e.NewValue));
+
+            // Stored the moment it is toggled, like song select's intro pool toggle, rather than on an
+            // editor save: it is user data about the song's vocals, not map content, so it never
+            // dirties the map, and a re-align made before saving already reads it.
+            estimatedVocalsToggle.Current.BindValueChanged(e =>
+            {
+                if (beatmaps != null && working.Value.BeatmapSetInfo is BeatmapSetInfo set)
+                    beatmaps.SetAlignerVocalMode(set, e.NewValue ? AlignerVocalMode.Estimated : AlignerVocalMode.Aligned);
+            });
             bundleToggle.Current.BindValueChanged(e => bundleChanged(e.NewValue));
 
             Beatmap.IntroBeatdrop.BindValueChanged(drop =>
@@ -221,6 +245,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 demoButton.Enabled.Value = IntroBeatdropDemo.CanDemo(drop.NewValue);
             }, true);
         }
+
+        /// <summary>
+        /// The map set's stored aligner vocal mode; <see cref="AlignerVocalMode.Aligned"/> when there is no
+        /// beatmap manager or no stored set (a visual test, a set not yet saved).
+        /// </summary>
+        private AlignerVocalMode storedVocalMode()
+            => beatmaps != null && working.Value.BeatmapSetInfo is BeatmapSetInfo set ? beatmaps.GetAlignerVocalMode(set) : AlignerVocalMode.Aligned;
 
         /// <summary>
         /// Restarts the game so that its startup intro is soundtracked by this map's beatdrop. A reboot
@@ -352,6 +383,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             string artist = working.Value.Metadata.Artist;
             string title = working.Value.Metadata.Title;
 
+            // The toggle beside the button, which mirrors the set's stored mode.
+            AlignerVocalMode vocalMode = estimatedVocalsToggle.Current.Value ? AlignerVocalMode.Estimated : AlignerVocalMode.Aligned;
+
             var progressNotification = new ProgressNotification
             {
                 Text = "Aligning lyrics to audio…",
@@ -393,7 +427,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         tempAudio, lyricsContent, artist, title,
                         reportProgress,
                         token,
-                        language: romanisationLanguage(lyricsContent)).ConfigureAwait(false);
+                        language: romanisationLanguage(lyricsContent),
+                        vocalMode: vocalMode).ConfigureAwait(false);
 
                     if (!result.Success || timingJson == null)
                     {

@@ -82,6 +82,29 @@ namespace typebeat.Game.Beatmaps
         /// </remarks>
         public bool? IntroPoolInclusion { get; set; }
 
+        /// <summary>
+        /// How the local auto-aligner times this set's words on its next import or re-align (see
+        /// <see cref="Beatmaps.AlignerVocalMode"/>), chosen by the mapper beside the importer's automatic
+        /// alignment and the editor's "Generate timing". Per SET because the choice is about the song's
+        /// vocals, which every difficulty shares.
+        /// </summary>
+        /// <remarks>
+        /// User data like <see cref="IntroPoolInclusion"/>, and for the same reasons: it lives in realm and
+        /// never in a beatmap file, so it never re-encodes a map and never travels in a package (the server
+        /// never sees it), and the realm write mapper does not copy it, so an editor save of a set detached
+        /// before the choice cannot revert it. The column's realm default (0) is
+        /// <see cref="Beatmaps.AlignerVocalMode.Aligned"/>, so schema 61 needed no migration body.
+        /// </remarks>
+        [Ignored]
+        public AlignerVocalMode AlignerVocalMode
+        {
+            get => (AlignerVocalMode)AlignerVocalModeInt;
+            set => AlignerVocalModeInt = (int)value;
+        }
+
+        [MapTo(nameof(AlignerVocalMode))]
+        public int AlignerVocalModeInt { get; set; }
+
         public double MaxStarDifficulty => Beatmaps.Count == 0 ? 0 : Beatmaps.Max(b => b.StarRating);
 
         public double MaxLength => Beatmaps.Count == 0 ? 0 : Beatmaps.Max(b => b.Length);

@@ -52,17 +52,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         public Task<LyricImportResult> BuildOszAsync(
             string audioPath, string? lyricsPath, string artist, string title,
-            Action<string> progress, CancellationToken token, bool useAutomaticAlignment, BeatmapLanguage language)
+            Action<string> progress, CancellationToken token, bool useAutomaticAlignment, BeatmapLanguage language,
+            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
             => language == BeatmapLanguage.Unspecified
                 ? Task.FromResult(LyricImportResult.Fail("select a language before importing"))
                 : LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token,
-                    useAutomaticAlignment, language: language.ToCanonicalName(), highQualityAlignment: HighQualityAlignment(config()));
+                    useAutomaticAlignment, language: language.ToCanonicalName(), highQualityAlignment: HighQualityAlignment(config()), vocalMode: vocalMode);
 
         public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
-            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true, string? language = null)
+            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true, string? language = null,
+            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
             => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, useAutomaticAlignment,
-                language, HighQualityAlignment(config()));
+                language, HighQualityAlignment(config()), vocalMode);
 
         /// <summary>
         /// Whether an import runs the aligner at its full tier. Read at the start of each import,

@@ -126,6 +126,21 @@ layout over the voiced audio. `--self-test-spacing`, `--self-test-late`,
 their pure parts with the standard library only (`--self-test-pacing`, the
 version 5 name, runs the last); `--self-test` runs every self-test.
 
+### Estimated vocals (`--vocal-mode estimated`, version 7)
+
+For a song whose vocals the model cannot follow (screamed, effect-heavy, the
+Shinigiwa class), the mapper can choose to drop the acoustic path entirely:
+every line of a stamped file is paced evenly from its stamp plus the song's
+stamp lead, at the song's median letter length (both read off the stamped
+decoder's first pass), and flagged `"estimated": true`. It is a per-song
+choice, never a default and never a fallback: pooled over the ranked corpus
+it scores 60.66 % / 56.02 % (exact / human stamps, `single` evidence) against
+the stamped decoder's 91.69 % / 90.58 %, but on Shinigiwa Satellite it goes
+55.0 % -> 75.2 % (exact) and 51.3 % -> 59.3 % (human). It needs stamps;
+without any the song is aligned as usual. In the game it is offered beside
+the import and the editor's "Generate timing", and remembered per map set.
+`--self-test-estimated` pins the layout.
+
 ## Evidence tiers (`--quality`, version 6)
 
 One MMS_FA pass guesses at what it barely hears, and its chunk seams every

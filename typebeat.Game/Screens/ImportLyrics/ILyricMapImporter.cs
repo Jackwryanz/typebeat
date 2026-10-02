@@ -33,10 +33,14 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// lines, to be written and timed in the editor.</para>
         /// <para><paramref name="language"/> is selected in the import screen. It is saved as map
         /// metadata and used when romanising lyrics.</para>
+        /// <para><paramref name="vocalMode"/> is how the local aligner times the words (see
+        /// <see cref="AlignerVocalMode"/>); it reaches the aligner's command line and nothing else,
+        /// so the packaged map carries no trace of it. The caller persists it on the imported set.</para>
         /// </summary>
         Task<LyricImportResult> BuildOszAsync(
             string audioPath, string? lyricsPath, string artist, string title,
-            Action<string> progress, CancellationToken token, bool useAutomaticAlignment, BeatmapLanguage language);
+            Action<string> progress, CancellationToken token, bool useAutomaticAlignment, BeatmapLanguage language,
+            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned);
 
         /// <summary>
         /// Aligns raw lyrics text to an audio file and returns timing.json (v2) text WITHOUT
@@ -46,11 +50,12 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// element; <see cref="LyricImportResult.OszPath"/> is unused on this path.
         /// </summary>
         /// <remarks>The optional language is the map's, which non-Latin lyrics are romanised under;
-        /// null detects it from the lyrics' own script.</remarks>
+        /// null detects it from the lyrics' own script. The vocal mode is the map set's stored
+        /// <see cref="BeatmapSetInfo.AlignerVocalMode"/>.</remarks>
         Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true,
-            string? language = null);
+            string? language = null, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned);
     }
 
     /// <summary>

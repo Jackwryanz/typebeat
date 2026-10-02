@@ -21,6 +21,7 @@ using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Import;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.ImportLyrics;
+using AlignerVocalMode = typebeat.Game.Beatmaps.AlignerVocalMode;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -161,6 +162,115 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // The notice for the old-script case must not claim a stage of the import display.
             Assert.That(ImportProgressParser.Parse(LyricMapImporter.HIGH_QUALITY_NEEDS_UPDATE).Stage, Is.Null);
+        }
+
+        /// <summary>
+        /// Backlog 354: a set's estimated vocals reach the aligner as <c>--vocal-mode estimated</c>, and
+        /// ONLY when it can honour them: the mode is chosen, the lyrics carry a line stamp to pace from,
+        /// and the script is version 7 or newer (version 6, what every player has installed until the
+        /// update, exits 2 on the unknown option and would cost the import its word timing). Aligned,
+        /// every set's default, adds nothing, so the ordinary command line is unchanged.
+        /// </summary>
+        [TestCase("ALIGNER_VERSION = \"7\"\n", "[00:01.00] hello\n[00:02.00] world\n", AlignerVocalMode.Estimated, true)]
+        [TestCase("ALIGNER_VERSION = \"12\"\n", "[00:01.00] hello\nworld\n", AlignerVocalMode.Estimated, true)]
+        [TestCase("ALIGNER_VERSION = \"7\"\n", "[00:01.00] hello\n[00:02.00] world\n", AlignerVocalMode.Aligned, false)]
+        [TestCase("ALIGNER_VERSION = \"6\"\n", "[00:01.00] hello\n[00:02.00] world\n", AlignerVocalMode.Estimated, false)]
+        [TestCase("ALIGNER_VERSION = \"7\"\n", "hello\nworld\n", AlignerVocalMode.Estimated, false)]
+        [TestCase("# a version-1 script, no constant\n", "[00:01.00] hello\n", AlignerVocalMode.Estimated, false)]
+        public void EstimatedVocalsReachTheAlignerOnlyWhenItCanHonourThem(string script, string lyrics, AlignerVocalMode mode, bool expectFlag)
+        {
+            string lab = makeLab();
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), script);
+
+            Assert.That(LyricMapImporter.EstimatedVocalsApply(lab, lyrics, mode), Is.EqualTo(expectFlag));
+
+            var args = LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", lyrics, false, mode);
+            string anchors = LyricMapImporter.AlignerAnchorMode(lyrics);
+
+            if (expectFlag)
+                Assert.That(args, Is.EqualTo(new[] { "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", anchors, "--vocal-mode", "estimated" }));
+            else
+                Assert.That(args, Is.EqualTo(new[] { "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", anchors }));
+        }
+
+        /// <summary>
+        /// The vocal mode rides alongside high accuracy rather than replacing it, and the default
+        /// parameter is Aligned, so every caller that predates the mode builds the line it always did.
+        /// </summary>
+        [Test]
+        public void EstimatedVocalsRideAlongsideHighAccuracy()
+        {
+            string lab = makeLab();
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "ALIGNER_VERSION = \"7\"\n");
+            const string stamped = "[00:01.00] hello\n[00:02.00] world\n";
+
+            Assert.That(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true, AlignerVocalMode.Estimated), Is.EqualTo(new[]
+            {
+                "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", "ref", "--quality", "full", "--vocal-mode", "estimated",
+            }));
+
+            Assert.That(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true),
+                Is.EqualTo(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true, AlignerVocalMode.Aligned)));
+        }
+
+        /// <summary>
+        /// What a run asked for estimated vocals says up front: on, or why not (no stamp is named
+        /// before an old install, since updating would not help it). None of the lines may claim a
+        /// stage of the import display, and Aligned says nothing at all.
+        /// </summary>
+        [Test]
+        public void EstimatedVocalsNoticeSaysWhyAndClaimsNoStage()
+        {
+            string lab = makeLab();
+            const string stamped = "[00:01.00] hello\n";
+            const string bare = "hello\n";
+
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "ALIGNER_VERSION = \"7\"\n");
+            string? aligned = LyricMapImporter.EstimatedVocalsNotice(lab, stamped, AlignerVocalMode.Aligned);
+            string? on = LyricMapImporter.EstimatedVocalsNotice(lab, stamped, AlignerVocalMode.Estimated);
+
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "ALIGNER_VERSION = \"6\"\n");
+            string? old = LyricMapImporter.EstimatedVocalsNotice(lab, stamped, AlignerVocalMode.Estimated);
+            string? oldBare = LyricMapImporter.EstimatedVocalsNotice(lab, bare, AlignerVocalMode.Estimated);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(aligned, Is.Null);
+                Assert.That(on, Is.EqualTo(LyricMapImporter.ESTIMATED_VOCALS_ON));
+                Assert.That(old, Is.EqualTo(LyricMapImporter.ESTIMATED_VOCALS_NEEDS_UPDATE));
+                Assert.That(oldBare, Is.EqualTo(LyricMapImporter.ESTIMATED_VOCALS_NEED_STAMPS));
+
+                foreach (string notice in new[]
+                         {
+                             LyricMapImporter.ESTIMATED_VOCALS_ON, LyricMapImporter.ESTIMATED_VOCALS_NEEDS_UPDATE, LyricMapImporter.ESTIMATED_VOCALS_NEED_STAMPS,
+                         })
+                    Assert.That(ImportProgressParser.Parse(notice).Stage, Is.Null, notice);
+
+                // The aligner's own line for the mode (align_lyrics.py, version 7) holds the display too.
+                Assert.That(ImportProgressParser.Parse("[17:57:27] estimated vocals: every line paced evenly from its stamp; stamp lead 80 ms, 70 ms a letter").Stage,
+                    Is.Null);
+            });
+        }
+
+        /// <summary>
+        /// The game ships the aligner it gates on: the vendored script must be new enough to accept
+        /// <c>--vocal-mode</c>, or a fresh install would never honour a mapper's choice. Read off the
+        /// repo's own <c>lyriclab/</c> (the closest one above the test directory), never through
+        /// ResolveLyricLabDir, which prefers whatever set-up checkout sits nearby.
+        /// </summary>
+        [Test]
+        public void ShippedAlignerAcceptsVocalModes()
+        {
+            string? vendored = null;
+
+            for (var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory); dir != null && vendored == null; dir = dir.Parent)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "lyriclab", "align_lyrics.py")))
+                    vendored = Path.Combine(dir.FullName, "lyriclab");
+            }
+
+            Assert.That(vendored, Is.Not.Null, "the vendored lyriclab/ should sit above the test directory");
+            Assert.That(LyricMapImporter.AlignerHasVocalModes(vendored!), Is.True, $"vendored aligner version {LyricMapImporter.ReadAlignerVersion(vendored)}");
         }
 
         /// <summary>
