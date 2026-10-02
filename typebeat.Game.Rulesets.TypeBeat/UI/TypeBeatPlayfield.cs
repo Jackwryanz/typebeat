@@ -198,7 +198,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // StageBackdrop.HasRenderableContent. Load time only, no per-frame cost.
             bool showStoryboard = osuConfig?.Get<bool>(OsuSetting.ShowStoryboard) ?? true;
             bool hasBackdrop = StageBackdrop.HasBackdrop(
-                beatmap?.Value.BeatmapInfo.Metadata.BackgroundFile, beatmap?.Value.Storyboard, showStoryboard);
+                beatmap?.Value.BackgroundFile, beatmap?.Value.Storyboard, showStoryboard);
 
             Drawable backdrop;
 

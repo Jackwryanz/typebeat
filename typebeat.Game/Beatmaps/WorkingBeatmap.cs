@@ -33,6 +33,12 @@ namespace typebeat.Game.Beatmaps
         // TODO: remove once the fallback lookup is not required (and access via `working.BeatmapInfo.Metadata` directly).
         public BeatmapMetadata Metadata => BeatmapInfo.Metadata;
 
+        /// <summary>
+        /// The set's first available background image, shared by all its difficulties.
+        /// </summary>
+        public string BackgroundFile => BeatmapSetInfo.Beatmaps.Select(b => b.Metadata.BackgroundFile)
+            .FirstOrDefault(path => !string.IsNullOrEmpty(path) && BeatmapSetInfo.GetFile(path) != null) ?? Metadata.BackgroundFile;
+
         public Storyboard Storyboard => storyboard.Value;
 
         public ISkin Skin => skin.Value;

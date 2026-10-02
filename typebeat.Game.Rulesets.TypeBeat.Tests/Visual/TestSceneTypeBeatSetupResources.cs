@@ -245,8 +245,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private FormBeatmapFileSelector audioChooser()
             => Editor.ChildrenOfType<FormBeatmapFileSelector>().Single(f => f.Caption.Equals(EditorSetupStrings.AudioTrack));
 
-        private FormBeatmapFileSelector videoChooser()
-            => Editor.ChildrenOfType<FormBeatmapFileSelector>().Single(f => f.Caption.Equals(EditorSetupStrings.Video));
+        private FormFileSelector videoChooser()
+            => Editor.ChildrenOfType<FormFileSelector>().Single(f => f.Caption.Equals(EditorSetupStrings.Video));
 
         // The setup screen carries several number boxes (the type!beat section has its own), so the
         // caption is what identifies this one.

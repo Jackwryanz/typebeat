@@ -13,6 +13,7 @@ using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input.Events;
+using osu.Framework.Localisation;
 using typebeat.Game.Graphics.Cursor;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -243,6 +244,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             foreach (var block in blockLayer.OfType<WordBlock>())
                 block.UpdateLayout(this);
 
+            foreach (var join in handleLayer.OfType<WordJoinTarget>())
+                join.UpdateLayout(this);
+
             foreach (var handle in handleLayer.OfType<BoundaryHandle>())
                 handle.UpdateLayout(this);
 
@@ -327,6 +331,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 for (int j = 0; j < hitObject.Line.Units.Count; j++)
                 {
                     blockLayer.Add(new WordBlock(this, hitObject, j));
+
+                    if (j + 1 < hitObject.Line.Units.Count)
+                        handleLayer.Add(new WordJoinTarget(hitObject, j));
 
                     // One draggable dotted line per syllable subdivision inside the word; sits above
                     // the word block so it takes the drag before the block's move/resize.
@@ -525,6 +532,68 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // their own clicks), and select the line so the detail panel edits it.
                 strip.SeekToScreenSpace(e.ScreenSpaceMousePosition);
                 state.SelectedLine.Value = hitObject;
+                return true;
+            }
+        }
+
+        /// <summary>Modifier-click surface for a word gap, including touching word edges.</summary>
+        private partial class WordJoinTarget : CompositeDrawable, IHasTooltip
+        {
+            private readonly TypeBeatHitObject hitObject;
+            private readonly int leftIndex;
+
+            [Resolved]
+            private EditorBeatmap editorBeatmap { get; set; } = null!;
+
+            [Resolved]
+            private LyricEditState state { get; set; } = null!;
+
+            public LocalisableString TooltipText => "Ctrl/Cmd+click to merge words";
+
+            public WordJoinTarget(TypeBeatHitObject hitObject, int leftIndex)
+            {
+                this.hitObject = hitObject;
+                this.leftIndex = leftIndex;
+                Anchor = Anchor.CentreLeft;
+                Origin = Anchor.CentreLeft;
+                RelativeSizeAxes = Axes.Y;
+                Height = 0.55f;
+            }
+
+            public void UpdateLayout(LyricTimeline strip)
+            {
+                var units = hitObject.Line.Units;
+
+                if (leftIndex + 1 >= units.Count || units[leftIndex].EndTime > units[leftIndex + 1].StartTime
+                    || state.HiddenByTapScope(hitObject, leftIndex) || state.HiddenByTapScope(hitObject, leftIndex + 1)
+                    || hitObject.Line.UnromanisedWords.Any(w => w.Position == leftIndex + 1))
+                {
+                    Alpha = 0;
+                    return;
+                }
+
+                Alpha = 1;
+                // A touching boundary still gets an eight-pixel click target. For a real gap,
+                // only the empty space belongs to this gesture; word bodies keep multi-selection.
+                float start = strip.PositionOf(units[leftIndex].EndTime);
+                float end = strip.PositionOf(units[leftIndex + 1].StartTime);
+                Width = Math.Max(8, end - start);
+                X = (start + end - Width) / 2;
+            }
+
+            protected override bool OnClick(ClickEvent e)
+            {
+                if (!e.ControlPressed && !e.SuperPressed)
+                    return false;
+
+                if (TypeBeatEditorOperations.MergeWords(editorBeatmap, hitObject, leftIndex))
+                {
+                    if (state.ActiveLine.Value != hitObject)
+                        state.SelectLineAtWord(hitObject, leftIndex);
+                    else
+                        state.SelectUnit(leftIndex);
+                }
+
                 return true;
             }
         }

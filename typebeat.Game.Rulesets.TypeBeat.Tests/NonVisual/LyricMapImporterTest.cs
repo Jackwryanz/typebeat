@@ -460,12 +460,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(jsonLines[1].GetProperty("words").GetArrayLength(), Is.EqualTo(5));
         }
 
-        [Test]
-        public async Task EnhancedLrcPackagesWithItsNoticeEvenWithAutomaticAlignmentOff()
+        [TestCase(".lrc")]
+        [TestCase(".elrc")]
+        [TestCase(".ELRC")]
+        public async Task EnhancedLrcPackagesWithItsNoticeEvenWithAutomaticAlignmentOff(string extension)
         {
             string audioPath = Path.Combine(tempRoot, "Some Artist - Some Song.mp3");
             File.WriteAllText(audioPath, "fake audio");
-            string lyricsPath = Path.Combine(tempRoot, "lyrics.lrc");
+            string lyricsPath = Path.Combine(tempRoot, "lyrics" + extension);
             File.WriteAllText(lyricsPath, enhanced_lyrics);
 
             var result = await LyricMapImporter.BuildOszAsync(
@@ -487,6 +489,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 Assert.That(hitObjects.Count, Is.EqualTo(3));
                 Assert.That(hitObjects.All(h => h.Granularity == TimingGranularity.Syllable), Is.True, "syllabified once at import (backlog 363)");
+                Assert.That(hitObjects[1].Line.Units.Select(u => u.StartTime), Is.EqualTo(new[] { 5000d, 5400, 5800, 6100, 6500 }));
+                Assert.That(hitObjects[1].Line.Units.Select(u => u.EndTime), Is.EqualTo(new[] { 5400d, 5800, 6100, 6500, 7000 }));
             }
             finally
             {

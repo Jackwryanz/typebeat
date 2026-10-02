@@ -89,6 +89,9 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
         [Resolved]
         private OsuGameBase game { get; set; } = null!;
 
+        [Resolved]
+        private GameHost host { get; set; } = null!;
+
         public FormFileSelector(params string[] handledExtensions)
         {
             this.handledExtensions = handledExtensions;
@@ -240,7 +243,13 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
 
         Task ICanAcceptFiles.Import(params string[] paths)
         {
-            Schedule(() => Current.Value = new FileInfo(paths.First()));
+            // A registered chooser can be scrolled out of view, where its own scheduler does
+            // not update. Dispatch drops on the host's update thread so they still reach it.
+            host.UpdateThread.Scheduler.Add(() =>
+            {
+                if (!IsDisposed)
+                    Current.Value = new FileInfo(paths.First());
+            });
             return Task.CompletedTask;
         }
 

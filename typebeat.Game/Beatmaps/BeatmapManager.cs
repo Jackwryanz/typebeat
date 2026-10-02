@@ -180,7 +180,7 @@ namespace typebeat.Game.Beatmaps
                 newBeatmap.ControlPointInfo.Add(clonedEffectPoint.Time, clonedEffectPoint);
             }
 
-            return addDifficultyToSet(targetBeatmapSet, newBeatmap, referenceWorkingBeatmap.Skin);
+            return addDifficultyToSet(targetBeatmapSet, newBeatmap, referenceWorkingBeatmap);
         }
 
         /// <summary>
@@ -211,10 +211,10 @@ namespace typebeat.Game.Beatmaps
             // clear online properties.
             newBeatmapInfo.ResetOnlineInfo();
 
-            return addDifficultyToSet(targetBeatmapSet, newBeatmap, referenceWorkingBeatmap.Skin);
+            return addDifficultyToSet(targetBeatmapSet, newBeatmap, referenceWorkingBeatmap);
         }
 
-        private WorkingBeatmap addDifficultyToSet(BeatmapSetInfo targetBeatmapSet, IBeatmap newBeatmap, ISkin beatmapSkin)
+        private WorkingBeatmap addDifficultyToSet(BeatmapSetInfo targetBeatmapSet, IBeatmap newBeatmap, WorkingBeatmap referenceWorkingBeatmap)
         {
             // populate circular beatmap set info <-> beatmap info references manually.
             // several places like `Save()` or `GetWorkingBeatmap()`
@@ -222,7 +222,14 @@ namespace typebeat.Game.Beatmaps
             targetBeatmapSet.Beatmaps.Add(newBeatmap.BeatmapInfo);
             newBeatmap.BeatmapInfo.BeatmapSet = targetBeatmapSet;
 
-            save(newBeatmap.BeatmapInfo, newBeatmap, beatmapSkin, new Storyboard(), transferCollections: false);
+            // Images and background videos belong to the set. A new difficulty must inherit
+            // both, including the video's sync, without sharing mutable storyboard state.
+            newBeatmap.Metadata.BackgroundFile = referenceWorkingBeatmap.BackgroundFile;
+            var storyboard = new Storyboard();
+            if (referenceWorkingBeatmap.Storyboard.PrimaryVideo is StoryboardVideo video)
+                storyboard.GetLayer("Video").Elements.Add(new StoryboardVideo(StoryboardElementSource.Beatmap, video.Path, video.StartTime));
+
+            save(newBeatmap.BeatmapInfo, newBeatmap, referenceWorkingBeatmap.Skin, storyboard, transferCollections: false);
 
             workingBeatmapCache.Invalidate(targetBeatmapSet);
             return GetWorkingBeatmap(newBeatmap.BeatmapInfo);

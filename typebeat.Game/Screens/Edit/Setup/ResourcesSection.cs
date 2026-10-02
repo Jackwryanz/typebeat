@@ -5,6 +5,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Audio.Track;
@@ -15,7 +16,9 @@ using osu.Framework.Localisation;
 using osu.Framework.Logging;
 using typebeat.Game.Audio.Effects;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.Graphics.UserInterfaceV2;
+using typebeat.Game.IO;
 using typebeat.Game.Localisation;
 using typebeat.Game.Models;
 using typebeat.Game.Overlays;
@@ -23,6 +26,7 @@ using typebeat.Game.Screens.Backgrounds;
 using typebeat.Game.Screens.Edit.Components;
 using typebeat.Game.Storyboards;
 using typebeat.Game.Utils;
+using FileInfo = System.IO.FileInfo;
 
 namespace typebeat.Game.Screens.Edit.Setup
 {
@@ -33,8 +37,8 @@ namespace typebeat.Game.Screens.Edit.Setup
 
         private FormBeatmapFileSelector audioTrackChooser = null!;
         private AudioClippingIndicator clippingIndicator = null!;
-        private FormBeatmapFileSelector backgroundChooser = null!;
-        private FormBeatmapFileSelector videoChooser = null!;
+        private FormFileSelector backgroundChooser = null!;
+        private FormFileSelector videoChooser = null!;
         private FormNumberBox videoOffsetBox = null!;
 
         /// <summary>
@@ -100,16 +104,17 @@ namespace typebeat.Game.Screens.Edit.Setup
 
             Children = new Drawable[]
             {
-                backgroundChooser = new FormBeatmapFileSelector(beatmapHasMultipleDifficulties, SupportedExtensions.IMAGE_EXTENSIONS)
+                backgroundChooser = new FormFileSelector(SupportedExtensions.IMAGE_EXTENSIONS)
                 {
                     Caption = GameplaySettingsStrings.BackgroundHeader,
                     PlaceholderText = EditorSetupStrings.ClickToSelectBackground,
+                    HintText = "Applies to all difficulties in this beatmap.",
                 },
-                videoChooser = new FormBeatmapFileSelector(beatmapHasMultipleDifficulties, SupportedExtensions.VIDEO_EXTENSIONS)
+                videoChooser = new FormFileSelector(SupportedExtensions.VIDEO_EXTENSIONS)
                 {
                     Caption = EditorSetupStrings.Video,
                     PlaceholderText = EditorSetupStrings.ClickToSelectVideo,
-                    HintText = EditorSetupStrings.VideoHint,
+                    HintText = "Applies to all difficulties in this beatmap. The video replaces the static background; provide a matching image for downloads without video.",
                     AllowClear = true,
                 },
                 // Directly under the picker it re-times, and whole milliseconds only: the format's
@@ -119,7 +124,7 @@ namespace typebeat.Game.Screens.Edit.Setup
                 videoOffsetBox = new FormNumberBox(allowDecimals: false)
                 {
                     Caption = VIDEO_OFFSET_CAPTION,
-                    HintText = "Syncs the video to the song. Positive = the video starts later: its first frame plays this many milliseconds into the song. Negative starts it earlier. Whole milliseconds.",
+                    HintText = "Applies to all difficulties. Syncs the video to the song. Positive = the video starts later: its first frame plays this many milliseconds into the song. Negative starts it earlier. Whole milliseconds.",
                     PlaceholderText = "e.g. -50",
                 },
                 audioTrackChooser = new FormBeatmapFileSelector(beatmapHasMultipleDifficulties, SupportedExtensions.AUDIO_EXTENSIONS)
@@ -175,8 +180,8 @@ namespace typebeat.Game.Screens.Edit.Setup
             backgroundChooser.PreviewContainer.Add(backgroundPreview);
             videoChooser.PreviewContainer.Add(videoPreview);
 
-            if (!string.IsNullOrEmpty(currentWorkingBeatmap.Value.Metadata.BackgroundFile))
-                backgroundChooser.Current.Value = new FileInfo(currentWorkingBeatmap.Value.Metadata.BackgroundFile);
+            if (!string.IsNullOrEmpty(currentWorkingBeatmap.Value.BackgroundFile))
+                backgroundChooser.Current.Value = new FileInfo(currentWorkingBeatmap.Value.BackgroundFile);
 
             if (currentWorkingBeatmap.Value.Storyboard.PrimaryVideo is StoryboardVideo video)
                 videoChooser.Current.Value = new FileInfo(video.Path);
@@ -372,28 +377,33 @@ namespace typebeat.Game.Screens.Edit.Setup
             editor?.Save();
         }
 
-        public bool ChangeBackgroundImage(FileInfo source, bool applyToAllDifficulties)
+        public bool ChangeBackgroundImage(FileInfo source)
         {
             if (!source.Exists)
                 return false;
 
-            changeResource(source, applyToAllDifficulties, @"bg",
+            changeResource(source, true, @"bg",
                 working => working.BeatmapInfo.Metadata.BackgroundFile,
-                (working, name) => working.BeatmapInfo.Metadata.BackgroundFile = name.AsNonNull());
+                (info, working, name) =>
+                {
+                    info.Metadata.BackgroundFile = name.AsNonNull();
+                    working.Metadata.BackgroundFile = name.AsNonNull();
+                });
 
             backgroundPreview.UpdateBackground();
             editor?.ApplyToBackground(bg => ((EditorBackgroundScreen)bg).RefreshBackgroundAsync());
             return true;
         }
 
-        public bool ChangeVideo(FileInfo? source, bool applyToAllDifficulties)
+        public bool ChangeVideo(FileInfo? source)
         {
             if (source != null && !source.Exists)
                 return false;
 
-            changeResource(source, applyToAllDifficulties, @"video",
+            double offset = currentWorkingBeatmap.Value.Storyboard.PrimaryVideo?.StartTime ?? 0;
+            changeResource(source, true, @"video",
                 working => working.Storyboard.PrimaryVideo?.Path ?? string.Empty,
-                (working, name) => ApplyVideoChange(working.Storyboard, name));
+                (_, working, name) => setVideo(working.Storyboard, name, offset));
 
             // A swap keeps the offset, so the box's value stands; a clear leaves no video to offset,
             // so it empties and goes dead.
@@ -416,7 +426,17 @@ namespace typebeat.Game.Screens.Edit.Setup
             if (storyboard.PrimaryVideo == null)
                 return false;
 
-            ApplyVideoOffsetChange(storyboard, offsetMs);
+            string filename = storyboard.PrimaryVideo.Path;
+            var working = currentWorkingBeatmap.Value;
+            var targets = working.BeatmapSetInfo.Beatmaps.Where(b => !b.Equals(working.BeatmapInfo))
+                .Select(b => (Info: b, Working: beatmaps.GetWorkingBeatmap(b))).ToArray();
+            foreach (var target in targets)
+                setVideo(target.Working.Storyboard, filename, offsetMs);
+            setVideo(storyboard, filename, offsetMs);
+            clearSharedVideos();
+            foreach (var target in targets)
+                beatmaps.Save(target.Info, target.Working.GetPlayableBeatmap(target.Info.Ruleset), target.Working.GetSkin(), target.Working.Storyboard);
+            ((IWorkingBeatmapCache)beatmaps).Invalidate(working.BeatmapSetInfo);
 
             // The thumbnail loops the clip free-running and cannot show a sync, but it is rebuilt for
             // consistency with the other resource edits. The editor BACKGROUND is the surface that
@@ -536,7 +556,12 @@ namespace typebeat.Game.Screens.Edit.Setup
 
             changeResource(source, applyToAllDifficulties, @"audio",
                 working => working.BeatmapInfo.Metadata.AudioFile,
-                (working, name) => ApplyAudioTrackChange(working.BeatmapInfo.Metadata, name.AsNonNull(), artist, title));
+                (info, working, name) =>
+                {
+                    ApplyAudioTrackChange(info.Metadata, name.AsNonNull(), artist, title);
+                    if (!ReferenceEquals(info.Metadata, working.Metadata))
+                        ApplyAudioTrackChange(working.Metadata, name.AsNonNull(), artist, title);
+                });
 
             music.ReloadCurrentTrack();
             setupScreen.MetadataChanged?.Invoke();
@@ -587,46 +612,20 @@ namespace typebeat.Game.Screens.Edit.Setup
             bool applyToAllDifficulties,
             string baseFilename,
             Func<WorkingBeatmap, string> readOldFilenameFrom,
-            Action<WorkingBeatmap, string?> writeNewFilenameTo)
+            Action<BeatmapInfo, WorkingBeatmap, string?> writeNewFilenameTo)
         {
-            var set = currentWorkingBeatmap.Value.BeatmapSetInfo;
-            var currentBeatmapInfo = currentWorkingBeatmap.Value.BeatmapInfo;
+            var current = currentWorkingBeatmap.Value;
+            var set = current.BeatmapSetInfo;
 
-            var otherBeatmaps = set.Beatmaps.Where(b => !b.Equals(currentBeatmapInfo));
-
-            // First, clean up files which will no longer be used.
-            if (applyToAllDifficulties)
-            {
-                foreach (var b in set.Beatmaps)
-                {
-                    var working = beatmaps.GetWorkingBeatmap(b);
-                    if (set.GetFile(readOldFilenameFrom(working)) is RealmNamedFileUsage otherExistingFile)
-                        beatmaps.DeleteFile(set, otherExistingFile);
-                }
-            }
-            else
-            {
-                RealmNamedFileUsage? oldFile = set.GetFile(readOldFilenameFrom(currentWorkingBeatmap.Value));
-
-                if (oldFile != null)
-                {
-                    bool oldFileUsedInOtherDiff = false;
-
-                    foreach (var b in otherBeatmaps)
-                    {
-                        var working = beatmaps.GetWorkingBeatmap(b);
-
-                        if (readOldFilenameFrom(working) == oldFile.Filename)
-                        {
-                            oldFileUsedInOtherDiff = true;
-                            break;
-                        }
-                    }
-
-                    if (!oldFileUsedInOtherDiff)
-                        beatmaps.DeleteFile(set, oldFile);
-                }
-            }
+            // Resolve the difficulties before changing files or saving any of them. Cached working
+            // beatmaps have detached metadata, so update both copies before encoding the set.
+            var infos = set.Beatmaps.Where(info => !info.Equals(current.BeatmapInfo)).Append(current.BeatmapInfo);
+            var difficulties = infos.Select(info => (Info: info, Working: info.Equals(current.BeatmapInfo)
+                ? current
+                : beatmaps.GetWorkingBeatmap(info))).ToArray();
+            var targets = difficulties.Where(d => applyToAllDifficulties || d.Info.Equals(current.BeatmapInfo)).ToArray();
+            var oldFiles = targets.Select(d => set.GetFile(readOldFilenameFrom(d.Working)))
+                                  .Where(f => f != null).Distinct().ToArray();
 
             string? newFilename = null;
 
@@ -647,25 +646,59 @@ namespace typebeat.Game.Screens.Edit.Setup
                     beatmaps.AddFile(set, stream, newFilename);
             }
 
-            if (applyToAllDifficulties)
+            foreach (var target in targets)
+                writeNewFilenameTo(target.Info, target.Working, newFilename);
+
+            if (baseFilename == "video")
+                clearSharedVideos();
+
+            // A video may also be the soundtrack (e.g. an imported MP4). Only remove files
+            // once no difficulty references them as audio, an image, or a storyboard resource.
+            foreach (var oldFile in oldFiles)
             {
-                foreach (var b in otherBeatmaps)
-                {
-                    // save the difficulty to re-encode the .osu file, updating any reference of the old filename.
-                    //
-                    // note that this triggers a full save flow, including triggering a difficulty calculation.
-                    // this is not a cheap operation and should be reconsidered in the future.
-                    var beatmapWorking = beatmaps.GetWorkingBeatmap(b);
-                    writeNewFilenameTo(beatmapWorking, newFilename);
-                    beatmaps.Save(b, beatmapWorking.GetPlayableBeatmap(b.Ruleset), beatmapWorking.GetSkin(), beatmapWorking.Storyboard);
-                }
+                string filename = oldFile!.Filename;
+                bool stillUsed = difficulties.Any(d =>
+                    string.Equals(d.Working.Metadata.AudioFile, filename, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(d.Working.Metadata.BackgroundFile, filename, StringComparison.OrdinalIgnoreCase) ||
+                    d.Working.Storyboard.Layers.Any(l => l.Elements.Any(e => string.Equals(e.Path, filename, StringComparison.OrdinalIgnoreCase))));
+                if (!stillUsed)
+                    beatmaps.DeleteFile(set, oldFile);
             }
 
-            writeNewFilenameTo(currentWorkingBeatmap.Value, newFilename);
+            foreach (var target in targets.Where(d => !d.Info.Equals(current.BeatmapInfo)))
+                beatmaps.Save(target.Info, target.Working.GetPlayableBeatmap(target.Info.Ruleset), target.Working.GetSkin(), target.Working.Storyboard);
+
+            ((IWorkingBeatmapCache)beatmaps).Invalidate(set);
 
             // editor change handler cannot be aware of any file changes or other difficulties having their metadata modified.
             // for simplicity's sake, trigger a save when changing any resource to ensure the change is correctly saved.
             editor?.Save();
+        }
+
+        private void clearSharedVideos()
+        {
+            var working = currentWorkingBeatmap.Value;
+            var set = working.BeatmapSetInfo;
+            // Once video declarations are written to every difficulty, remove any shared .osb
+            // video declarations so they cannot play a second clip or resurrect a cleared video.
+            foreach (var file in set.Files.Where(f => f.Filename.EndsWith(".osb", StringComparison.OrdinalIgnoreCase)).ToArray())
+            {
+                using var stream = working.GetStream(set.GetPathForFile(file.Filename)!);
+                if (stream == null)
+                    continue;
+                using var reader = new LineBufferedReader(stream);
+                using var empty = new MemoryStream();
+                using var emptyReader = new LineBufferedReader(empty);
+                var storyboard = new LegacyStoryboardDecoder().Decode(emptyReader, reader);
+                if (storyboard.GetLayer("Video").Elements.RemoveAll(e => e is StoryboardVideo) == 0)
+                    continue;
+
+                using var encoded = new MemoryStream();
+                using (var writer = new StreamWriter(encoded, Encoding.UTF8, 1024, leaveOpen: true))
+                    new LegacyStoryboardEncoder(storyboard).EncodeStandaloneStoryboard(writer);
+                encoded.Position = 0;
+                beatmaps.AddFile(set, encoded, file.Filename);
+            }
         }
 
         // to avoid scaring users, both background & audio choosers use fake `FileInfo`s with user-friendly filenames
@@ -684,7 +717,7 @@ namespace typebeat.Game.Screens.Edit.Setup
             if (rollingBackBackgroundChange)
                 return;
 
-            if (file.NewValue == null || !ChangeBackgroundImage(file.NewValue, backgroundChooser.ApplyToAllDifficulties.Value))
+            if (file.NewValue == null || !ChangeBackgroundImage(file.NewValue))
             {
                 rollingBackBackgroundChange = true;
                 backgroundChooser.Current.Value = file.OldValue;
@@ -697,7 +730,7 @@ namespace typebeat.Game.Screens.Edit.Setup
             if (rollingBackVideoChange)
                 return;
 
-            if (!ChangeVideo(file.NewValue, videoChooser.ApplyToAllDifficulties.Value))
+            if (!ChangeVideo(file.NewValue))
             {
                 rollingBackVideoChange = true;
                 videoChooser.Current.Value = file.OldValue;
