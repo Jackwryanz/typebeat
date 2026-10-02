@@ -19,6 +19,7 @@ using osu.Framework.Logging;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.Fonts;
 using typebeat.Game.Graphics.Sprites;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using osuTK;
@@ -81,10 +82,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // which is every bare test scene, must start on what the game actually ships.
         private readonly Bindable<bool> syllableMarkers = new Bindable<bool>(true);
 
-        // Display-only. Relative colours are on by default, including without a config.
+        // Display-only. Map-relative colours are on by default, including without a config.
         private readonly Bindable<bool> showPaceColours = new Bindable<bool>(true);
+        private readonly Bindable<PaceColourMode> paceColourMode = new Bindable<PaceColourMode>(PaceColourMode.MapRelative);
+        private readonly BindableFloat paceColourOpacityCurve = new BindableFloat();
         private readonly BindableFloat paceColourMaxChange = new BindableFloat((float)UnderlinePace.DEFAULT_MAX_CHANGE_PERCENT);
         private readonly BindableFloat syllableBrightness = new BindableFloat(50f);
+        private readonly BindableBool syllableFadeIn = new BindableBool();
         private readonly BindableBool textPopIn = new BindableBool();
         private readonly BindableFloat textPopInAmount = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT);
 
@@ -233,16 +237,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 runningCountable += c;
             }
 
-            // Compare each word/subdivision with its predecessor, even across line breaks. The
-            // checkbox only recolours the existing boxes; geometry and timing stay fixed.
-            //
-            // The bands are cut at the syllable marks of the grouping the engine judges on
-            // (backlog 363): the authored one live, the natural one while a stored replay that
-            // predates it plays back. A replay attaching flips that, and the handler below re-lays
-            // both the marks and the bands.
-            var paceBands = UnderlinePace.BuildRelativeBands(lines,
-                config?.GetBindable<float>(TypeBeatRulesetSetting.PaceColourMaxChange).Value
-                ?? UnderlinePace.DEFAULT_MAX_CHANGE_PERCENT, engine.AuthoredSyllablesOnly);
+            config?.BindWith(TypeBeatRulesetSetting.PaceColourMaxChange, paceColourMaxChange);
+            config?.BindWith(TypeBeatRulesetSetting.PaceColourMode, paceColourMode);
+            config?.BindWith(TypeBeatRulesetSetting.PaceColourOpacityCurve, paceColourOpacityCurve);
+
+            // Use the same whole-map average as the map's pace readouts. Playback rate scales both
+            // local and average pace equally, so their ratio can be computed in authored time.
+            double? averageWpm = null;
+            PaceBand[][] buildPaceBands()
+            {
+                if (paceColourMode.Value == PaceColourMode.MapRelative)
+                {
+                    averageWpm ??= LyricPaceStatistics.Compute(lines.Select(l => l.Source), engine.Literate).AverageWpm;
+                    return UnderlinePace.BuildMapRelativeBands(lines, averageWpm.Value,
+                        paceColourMaxChange.Value, engine.AuthoredSyllablesOnly, paceColourOpacityCurve.Value);
+                }
+
+                return UnderlinePace.BuildRelativeBands(lines, paceColourMaxChange.Value, engine.AuthoredSyllablesOnly, paceColourOpacityCurve.Value);
+            }
+
+            var paceBands = buildPaceBands();
 
             // The gameplay typing font is an accessibility pick (OpenDyslexic / a system font) applied
             // only to the lyric stack. Resolved once here: an unset/unknown/failed font stays null so
@@ -291,21 +305,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     displays[i].SetPaceColours(e.NewValue ? paceBands[i] : null);
             }, true);
 
-            config?.BindWith(TypeBeatRulesetSetting.PaceColourMaxChange, paceColourMaxChange);
-            paceColourMaxChange.BindValueChanged(e =>
+            void refreshPaceColours()
             {
-                paceBands = UnderlinePace.BuildRelativeBands(lines, e.NewValue, engine.AuthoredSyllablesOnly);
+                paceBands = buildPaceBands();
 
                 for (int i = 0; i < displays.Length; i++)
                     displays[i].SetPaceColours(showPaceColours.Value ? paceBands[i] : null);
-            });
+            }
+
+            paceColourMaxChange.BindValueChanged(_ => refreshPaceColours());
+            paceColourMode.BindValueChanged(_ => refreshPaceColours());
+            paceColourOpacityCurve.BindValueChanged(_ => refreshPaceColours());
 
             // THE GROUPING SWITCH (backlog 363). The engine's AuthoredSyllablesOnly flips only when a
             // replay's headers re-select it (attaching a stored run on the watch path, or detaching
             // one), and the marks and bands drawn at load followed the grouping in force then.
             regroup = () =>
             {
-                paceBands = UnderlinePace.BuildRelativeBands(lines, paceColourMaxChange.Value, engine.AuthoredSyllablesOnly);
+                paceBands = buildPaceBands();
 
                 for (int i = 0; i < displays.Length; i++)
                 {
@@ -315,6 +332,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             };
 
             engine.AuthoredSyllablesOnlyChanged += regroup;
+            // The target era switches the same way (a replay recorded before AlignSubdivisionTargets
+            // flips the cells back to the legacy targets), and the bands are laid from those targets.
+            engine.AlignSubdivisionTargetsChanged += regroup;
 
             // Carets are positioned via absolute points in this stage's top-left-origin
             // local space (from ToSpaceOfOtherDrawable), so they must anchor top-left.
@@ -392,6 +412,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 foreach (var d in displays)
                     d.SetTextPopInAmount(e.NewValue);
+            }, true);
+
+            config?.BindWith(TypeBeatRulesetSetting.SyllableFadeIn, syllableFadeIn);
+            syllableFadeIn.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetSyllableFadeInEnabled(e.NewValue);
             }, true);
 
             config?.BindWith(TypeBeatRulesetSetting.TextPopIn, textPopIn);
@@ -1399,7 +1426,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             for (int candidate = lo; candidate <= hi; candidate++)
             {
                 displays[candidate].SetSungWindow(time, engine.Windows.GreatEarly, engine.Windows.GreatLate,
-                    characterTiming: engine.HardRockFromMod || !engine.SyllableTiming, charTimedStretch: engine.CharTimedStretch);
+                    characterTiming: engine.HardRockFromMod || !engine.SyllableTiming, charTimedStretch: engine.CharTimedStretch, okEarly: engine.Windows.OkEarly);
                 syllableLitLines.Add(candidate);
             }
         }
@@ -1462,7 +1489,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             engine.Rewound -= onRewound;
 
             if (regroup != null)
+            {
                 engine.AuthoredSyllablesOnlyChanged -= regroup;
+                engine.AlignSubdivisionTargetsChanged -= regroup;
+            }
 
             base.Dispose(isDisposing);
         }

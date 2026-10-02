@@ -27,11 +27,11 @@ namespace typebeat.Game.Screens.ImportLyrics
         public static readonly string[] VIDEO = { ".mp4" };
 
         /// <summary>
-        /// Lyrics files: plain text, LRC line stamps, and Apple Music TTML. A TTML is the odd one
-        /// out in that it is already word-timed, so the importer converts it instead of aligning it
+        /// Lyrics files: plain text, LRC line stamps, enhanced LRC word stamps, and Apple Music TTML.
+        /// Word-timed files are converted directly instead of aligning them
         /// (see <c>LyricMapImporter.SynthesizeTimingJsonFromTtml</c>).
         /// </summary>
-        public static readonly string[] LYRICS = { ".txt", ".lrc", ".ttml" };
+        public static readonly string[] LYRICS = { ".txt", ".lrc", ".elrc", ".ttml" };
         public static readonly string[] ALL = AUDIO.Concat(VIDEO).Concat(LYRICS).ToArray();
 
         public static bool IsAudio(string path) => AUDIO.Contains(extension(path)) || IsVideo(path);

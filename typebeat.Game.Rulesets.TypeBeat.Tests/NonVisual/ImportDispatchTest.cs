@@ -181,6 +181,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        [TestCase("lyrics.elrc")]
+        [TestCase("lyrics.ELRC")]
+        public async Task EnhancedLrcIsRecognizedAndRoutedToTheLyricImporter(string path)
+        {
+            var importer = register(LyricImportExtensions.ALL);
+            Assert.That(LyricImportExtensions.IsLyrics(path), Is.True);
+            await game.Import(path).ConfigureAwait(false);
+            Assert.That(importer.Received, Is.EqualTo(new[] { path }));
+        }
+
+        [Test]
+        public async Task EditorLyricsChooserTakesEnhancedLrcBeforeTheGlobalImporter()
+        {
+            var importer = register(LyricImportExtensions.ALL);
+            var chooser = register(LyricImportExtensions.LYRICS);
+            await game.Import("lyrics.elrc").ConfigureAwait(false);
+            Assert.That(chooser.Received, Is.EqualTo(new[] { "lyrics.elrc" }));
+            Assert.That(importer.Received, Is.Empty);
+        }
+
         private RecordingHandler register(params string[] handledExtensions)
         {
             var handler = new RecordingHandler(handledExtensions);

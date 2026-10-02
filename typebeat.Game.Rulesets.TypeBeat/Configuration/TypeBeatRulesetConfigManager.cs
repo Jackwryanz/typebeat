@@ -1,6 +1,9 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
+using System.ComponentModel;
+using System.Linq;
 using typebeat.Game.Configuration;
 using typebeat.Game.Rulesets.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -229,7 +232,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// order does not matter to it, but appending keeps that true for anything that ever
         /// casts.</para>
         /// </summary>
-        LocalAlignerHighQuality
+        LocalAlignerHighQuality,
+
+        /// <summary>Brighten sung text from the early Ok edge to the Great edge. Display only.</summary>
+        SyllableFadeIn,
+
+        /// <summary>Reference used to colour word and subdivision pace. Display only.</summary>
+        PaceColourMode,
+
+        /// <summary>Blend the pace colour opacity ramp from linear (0%) to exponential (100%).</summary>
+        PaceColourOpacityCurve,
+
+        /// <summary>Records the one-time switch of existing players to map-relative pace colours.</summary>
+        PaceColourMapRelativeDefaultApplied
     }
 
     /// <summary>
@@ -288,6 +303,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         None
     }
 
+    public enum PaceColourMode
+    {
+        [Description("Acceleration-based")]
+        AccelerationBased,
+
+        [Description("Map-relative")]
+        MapRelative,
+    }
+
     public class TypeBeatRulesetConfigManager : RulesetConfigManager<TypeBeatRulesetSetting>
     {
         /// <summary>Sentinel <see cref="TypeBeatRulesetSetting.LyricFont"/> value meaning "keep the game's built-in font".</summary>
@@ -338,8 +362,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         public const CaretStyle DEFAULT_SUNG_CARET_STYLE = CaretStyle.Line;
 
         public TypeBeatRulesetConfigManager(SettingsStore? settings, RulesetInfo ruleset, int? variant = null)
-            : base(settings, ruleset, variant)
+            : base(migratePaceColourMode(settings, ruleset, variant ?? 0), ruleset, variant)
         {
+        }
+
+        // Run before the base constructor loads and parses any stored setting. A default alone
+        // cannot change an existing row, and PreviousSegment is a name used by an older build.
+        private static SettingsStore? migratePaceColourMode(SettingsStore? settings, RulesetInfo ruleset, int variant)
+        {
+            if (settings == null)
+                return null;
+
+            string rulesetName = ruleset.ShortName;
+            string modeKey = nameof(TypeBeatRulesetSetting.PaceColourMode);
+            string markerKey = nameof(TypeBeatRulesetSetting.PaceColourMapRelativeDefaultApplied);
+            settings.Realm.Write(realm =>
+            {
+                var rows = realm.All<RealmRulesetSetting>().Where(s => s.RulesetName == rulesetName && s.Variant == variant);
+                var mode = rows.FirstOrDefault(s => s.Key == modeKey);
+                var marker = rows.FirstOrDefault(s => s.Key == markerKey);
+
+                // Once migrated, honour subsequent choices. Also heal a legacy mode written by
+                // running an older build again, before Enum.Parse can issue a warning.
+                if (marker?.Value == bool.TrueString && (mode == null
+                    || (Enum.TryParse<PaceColourMode>(mode.Value, out var value) && Enum.IsDefined(value))))
+                    return;
+
+                if (mode == null)
+                    realm.Add(new RealmRulesetSetting { RulesetName = rulesetName, Variant = variant, Key = modeKey, Value = PaceColourMode.MapRelative.ToString() });
+                else
+                    mode.Value = PaceColourMode.MapRelative.ToString();
+
+                if (marker == null)
+                    realm.Add(new RealmRulesetSetting { RulesetName = rulesetName, Variant = variant, Key = markerKey, Value = bool.TrueString });
+                else
+                    marker.Value = bool.TrueString;
+            });
+            return settings;
         }
 
         protected override void InitialiseDefaults()
@@ -365,9 +424,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
             SetDefault(TypeBeatRulesetSetting.ShowPaceColours, true);
+            SetDefault(TypeBeatRulesetSetting.PaceColourMode, PaceColourMode.MapRelative);
+            SetDefault(TypeBeatRulesetSetting.PaceColourMapRelativeDefaultApplied, true);
+            SetDefault(TypeBeatRulesetSetting.PaceColourOpacityCurve, 0.0f, 0.0f, 100.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.PaceColourMaxChange, 100.0f, 25.0f, 150.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.SyllableBrightness, 50.0f, 0.0f, 100.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.ShowSyncMetric, false);
+            SetDefault(TypeBeatRulesetSetting.SyllableFadeIn, false);
             SetDefault(TypeBeatRulesetSetting.TextPopIn, false);
             SetDefault(TypeBeatRulesetSetting.TextPopInAmount, DEFAULT_TEXT_POP_IN_AMOUNT, 0f, MAX_TEXT_POP_IN_AMOUNT, 1f);
         }

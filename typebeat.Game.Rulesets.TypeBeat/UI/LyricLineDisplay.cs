@@ -289,11 +289,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// beside the sung sweep rather than in the pull-based cell states.</summary>
         private int sungSyllable = -1;
         private readonly bool[] litCells;
+        private readonly float[] litAmounts;
+        private bool syllableFadeInEnabled;
         private readonly bool[] popInApplied;
         private bool textPopInEnabled;
         private float textPopInAmount = TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT;
         private double sungTime = double.NaN;
         private double sungGreatEarly;
+        private double sungGreatLate;
+        private double sungOkEarly;
         private bool characterTiming;
         private bool charTimedStretch;
         private Box layoutBounds = null!;
@@ -320,6 +324,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             Line = line;
             litCells = new bool[line.Cells.Count];
+            litAmounts = new float[line.Cells.Count];
             popInApplied = new bool[line.Cells.Count];
             requestedFontSize = fontSize;
             this.fontFamily = fontFamily;
@@ -1559,7 +1564,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             bool inSungSyllable = litCells[cellIndex];
 
-            cell.Colour = CellFillColour(source.State, isFreestyle: false, inSungSyllable, syncQuality, sungBrightness);
+            cell.Colour = CellFillColour(source.State, isFreestyle: false, inSungSyllable, syncQuality, sungBrightness * litAmounts[cellIndex]);
             // A WORD GAP is the one cell whose glyph is not fixed at construction: a typo landing on
             // it shows the typed char, and every other state shows the space back (see CellGlyph).
             // Scoped to the gap rather than asserted for every cell so a lyric character's Text is
@@ -1714,11 +1719,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 setCellLit(i, index >= 0 && grouping.IndexOf(i) == index);
         }
 
-        /// <summary>Follow syllable spans or character targets using the actual Great windows.</summary>
-        public void SetSungWindow(double time, double greatEarly, double greatLate, bool characterTiming = false, bool charTimedStretch = false)
+        /// <summary>Follow Great windows, optionally approaching their brightness from the early Ok edge.</summary>
+        public void SetSungWindow(double time, double greatEarly, double greatLate, bool characterTiming = false, bool charTimedStretch = false, double? okEarly = null)
         {
             sungTime = time;
             sungGreatEarly = greatEarly;
+            sungGreatLate = greatLate;
+            sungOkEarly = Math.Max(greatEarly, okEarly ?? greatEarly);
             this.characterTiming = characterTiming;
             this.charTimedStretch = charTimedStretch;
             int primary = -1;
@@ -1726,11 +1733,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             for (int i = 0; i < litCells.Length; i++)
             {
                 var (start, end) = sungSpan(i);
-                bool lit = Line.Cells[i].IsCountable && time >= start - greatEarly && time <= end + greatLate;
+                double approachEarly = syllableFadeInEnabled ? sungOkEarly : greatEarly;
+                bool lit = Line.Cells[i].IsCountable && time >= start - approachEarly && time <= end + greatLate;
+                float amount = lit
+                    ? syllableFadeInEnabled && sungOkEarly > greatEarly
+                        ? (float)Math.Clamp((time - start + sungOkEarly) / (sungOkEarly - greatEarly), 0, 1)
+                        : 1f
+                    : 0f;
                 int group = grouping.IndexOf(i);
                 if (lit && group >= 0 && (primary < 0 || time >= start && time <= end))
                     primary = group;
-                setCellLit(i, lit);
+                setCellLit(i, lit, amount);
                 applyTextPopIn(i);
             }
             sungSyllable = primary;
@@ -1742,19 +1755,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             if (!characterTiming && !(charTimedStretch && grouping.IsCharTimedStretch(index)) && group >= 0)
             {
                 var span = grouping.Groups[group];
-                return (span.StartTime, span.EndTime);
+                double start = span.StartTime;
+                if (charTimedStretch)
+                {
+                    // A syllable-timed suffix must wait for the character-timed run before it.
+                    // It shares the final character's opening, while keeping the syllable's end.
+                    for (int i = index - 1; i >= span.StartCell; i--)
+                    {
+                        if (grouping.IndexOf(i) == group && grouping.IsCharTimedStretch(i))
+                        {
+                            start = Math.Max(start, Line.Cells[i].TargetTime);
+                            break;
+                        }
+                    }
+                }
+                return (start, Math.Max(start, span.EndTime));
             }
             double target = Line.Cells[index].TargetTime;
             return (target, target);
         }
 
-        private void setCellLit(int index, bool lit)
+        private void setCellLit(int index, bool lit, float amount = 1f)
         {
-            if (litCells[index] == lit)
+            amount = lit ? amount : 0f;
+            if (litCells[index] == lit && litAmounts[index] == amount)
                 return;
             litCells[index] = lit;
-            if (Line.Cells[index].State == CellState.Untyped && !Line.Cells[index].IsFreestyle)
-                RefreshCell(index);
+            litAmounts[index] = amount;
+            // Only the untyped fill changes during the approach; judgement feedback keeps its colour.
+            if (index < cells.Length && Line.Cells[index].State == CellState.Untyped && !Line.Cells[index].IsFreestyle)
+                cells[index].Colour = TypeBeatStyle.SungCharForBrightness(sungBrightness * amount);
+        }
+
+        public void SetSyllableFadeInEnabled(bool enabled)
+        {
+            if (syllableFadeInEnabled == enabled)
+                return;
+            syllableFadeInEnabled = enabled;
+            if (!double.IsNaN(sungTime))
+                SetSungWindow(sungTime, sungGreatEarly, sungGreatLate, characterTiming, charTimedStretch, sungOkEarly);
         }
 
         /// <summary>Adjust the highlight colour during play without changing cell states.</summary>

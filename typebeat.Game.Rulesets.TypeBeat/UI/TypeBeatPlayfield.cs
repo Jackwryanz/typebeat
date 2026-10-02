@@ -198,7 +198,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // StageBackdrop.HasRenderableContent. Load time only, no per-frame cost.
             bool showStoryboard = osuConfig?.Get<bool>(OsuSetting.ShowStoryboard) ?? true;
             bool hasBackdrop = StageBackdrop.HasBackdrop(
-                beatmap?.Value.BeatmapInfo.Metadata.BackgroundFile, beatmap?.Value.Storyboard, showStoryboard);
+                beatmap?.Value.BackgroundFile, beatmap?.Value.Storyboard, showStoryboard);
 
             Drawable backdrop;
 
@@ -676,7 +676,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// replay's headers selected (backlog 363: above all the grouping, which the lyric stack
             /// re-lays when it flips back).
             /// </summary>
-            private (bool RushCapCostsAccuracy, bool InputEra2, bool AuthoredSyllablesOnly)? liveExtendedEras;
+            private (bool RushCapCostsAccuracy, bool InputEra2, bool AuthoredSyllablesOnly, bool AlignSubdivisionTargets)? liveExtendedEras;
             private int nextFrameIndex;
 
             /// <summary>
@@ -712,7 +712,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // The replay can be swapped mid-play (editor autoplay toggle); restart feeding.
                     if (!ReferenceEquals(replay, activeReplay))
                     {
-                        liveExtendedEras ??= (engine.RushCapCostsAccuracy, engine.InputEra2, engine.AuthoredSyllablesOnly);
+                        liveExtendedEras ??= (engine.RushCapCostsAccuracy, engine.InputEra2, engine.AuthoredSyllablesOnly, engine.AlignSubdivisionTargets);
                         activeReplay = replay;
                         nextFrameIndex = 0;
                         lastFedTime = double.NegativeInfinity;
@@ -790,6 +790,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         engine.RushCapCostsAccuracy = live.RushCapCostsAccuracy;
                         engine.InputEra2 = live.InputEra2;
                         engine.AuthoredSyllablesOnly = live.AuthoredSyllablesOnly;
+                        engine.AlignSubdivisionTargets = live.AlignSubdivisionTargets;
                     }
 
                     liveExtendedEras = null;

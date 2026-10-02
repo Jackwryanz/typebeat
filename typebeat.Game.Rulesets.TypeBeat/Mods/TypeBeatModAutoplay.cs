@@ -54,7 +54,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
                     charTimedStretch: true,
                     firstCharTiming: true,
                     wordShelter: mods.Any(m => m is TypeBeatModEasy),
-                    authoredSyllablesOnly: true).Generate(),
+                    authoredSyllablesOnly: true,
+                    alignSubdivisionTargets: true).Generate(),
                 new ModCreatedUser { Username = "typebot" });
     }
 }

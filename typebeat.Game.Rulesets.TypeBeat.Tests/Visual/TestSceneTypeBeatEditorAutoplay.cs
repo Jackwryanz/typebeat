@@ -14,6 +14,7 @@ using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit.GameplayTest;
 using typebeat.Game.Tests.Visual;
@@ -76,7 +77,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("start the test play", () => Editor.TestGameplay());
             AddUntilStep("player entered", () => editorPlayer()?.IsLoaded == true && playfield() != null);
 
-            AddAssert("the test play's engine is the live factory's", () => playfield()!.Engine.AuthoredSyllablesOnly);
+            AddAssert("the test play's engine is the live factory's", () => playfield()!.Engine.AuthoredSyllablesOnly && playfield()!.Engine.AlignSubdivisionTargets);
 
             AddStep("toggle autoplay", () =>
                 ((osu.Framework.Input.Bindings.IKeyBindingHandler<GlobalAction>)editorPlayer()!).OnPressed(
@@ -87,11 +88,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("every cell typed", () =>
                 playfield()?.Engine.Lines[0].Cells.Where(c => c.IsTypeable).All(c => c.State == CellState.Correct) == true);
 
-            AddAssert("still on authored syllables", () => playfield()!.Engine.AuthoredSyllablesOnly);
+            AddAssert("still on the live grouping and targets", () => playfield()!.Engine.AuthoredSyllablesOnly && playfield()!.Engine.AlignSubdivisionTargets);
             AddAssert("every press dead on its span", () =>
                 playfield()!.Engine.Lines[0].Cells.Where(c => c.IsTypeable).All(c => Math.Abs(c.JudgedDelta!.Value) <= 0.5));
             AddAssert("no phantom mark on the stack", () =>
                 playfield()!.ChildrenOfType<LyricStage>().Single().DisplayAt(0)!.SyllableMarkerCount == 0);
+
+            AddStep("apply an older replay's target era", () => ReplayEngineFeed.Apply(playfield()!.Engine,
+                TypeBeatReplayFrame.CreateExtendedConfigFrame(0, authoredSyllablesOnly: true)));
+            AddAssert("older targets are active", () => !playfield()!.Engine.AlignSubdivisionTargets);
+            AddStep("return to manual play", () =>
+                ((osu.Framework.Input.Bindings.IKeyBindingHandler<GlobalAction>)editorPlayer()!).OnPressed(
+                    new KeyBindingPressEvent<GlobalAction>(new InputState(), GlobalAction.EditorTestPlayToggleAutoplay)));
+            AddUntilStep("live targets restored after detach", () => playfield()!.Engine.AlignSubdivisionTargets);
         }
     }
 }

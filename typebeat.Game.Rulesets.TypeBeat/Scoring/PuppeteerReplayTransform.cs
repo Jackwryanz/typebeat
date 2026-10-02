@@ -259,6 +259,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             RushCapCostsAccuracy = source.RushCapCostsAccuracy,
             InputEra2 = source.InputEra2,
             AuthoredSyllablesOnly = source.AuthoredSyllablesOnly,
+            AlignSubdivisionTargets = source.AlignSubdivisionTargets,
         };
     }
 }

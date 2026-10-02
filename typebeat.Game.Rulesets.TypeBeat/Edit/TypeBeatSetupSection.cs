@@ -23,6 +23,7 @@ using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Import;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
 using typebeat.Game.Screens.Edit.Setup;
@@ -36,12 +37,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// map data, unlike the per-player LyricOffsetMs preference) and an in-editor auto-timer that
     /// aligns a lyrics file to the map's audio and replaces the lines.
     ///
-    /// <para>The lyrics file chooser takes a .txt, .lrc or Apple Music .ttml. Its own registration
+    /// <para>The lyrics file chooser takes .txt, .lrc, .elrc and Apple Music .ttml files. Its own registration
     /// as a file-import handler is what makes a drop work: the window hands a dropped file to the
     /// most recently registered handler that claims its extension, so while this screen is up a
-    /// .ttml lands HERE rather than in the global song-import flow. A .ttml is applied the moment it
-    /// arrives (it is already word-timed, so there is nothing to run and nothing to wait for); the
-    /// other two still go through the aligner when the button is pressed.</para>
+    /// lyric file lands here rather than in the global song-import flow. TTML and enhanced LRC
+    /// are applied on arrival using their own word timing; plain text and line-stamped LRC use
+    /// the Generate timing button.</para>
     /// </summary>
     public partial class TypeBeatSetupSection : SetupSection
     {
@@ -146,10 +147,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     ButtonText = "Shift timings",
                     Action = applyShift,
                 },
-                lyricsSelector = new FormFileSelector(".txt", ".lrc", ".ttml")
+                lyricsSelector = new FormFileSelector(LyricImportExtensions.LYRICS)
                 {
                     Caption = "Lyrics file",
-                    PlaceholderText = "Click to select a .txt / .lrc / .ttml lyrics file",
+                    PlaceholderText = "Click to select a .txt / .lrc / .elrc / .ttml lyrics file",
                 },
                 new FormButton
                 {
@@ -193,14 +194,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             beatdropBox.OnCommit += (_, _) => commitBeatdrop();
 
-            // A .ttml is applied the moment it arrives, however it arrived (a drop into the window,
-            // which this selector is registered to receive, or the file chooser): it is already
-            // word-timed, so there is nothing to run and no reason to make the mapper press the
-            // button. The .txt/.lrc path keeps the button, because alignment is expensive.
+            // Files with their own word timing are applied on arrival, whether selected or
+            // dropped. Plain lyrics still wait for the Generate timing button.
             lyricsSelector.Current.BindValueChanged(selected =>
             {
-                if (selected.NewValue is FileInfo file && TtmlParser.IsTtmlFile(file.FullName) && tryReadLyrics(file, out string content))
-                    importTtml(file, content);
+                if (selected.NewValue is FileInfo file && tryReadLyrics(file, out string content))
+                    tryImportTimedLyrics(file, content);
             });
         }
 
@@ -298,23 +297,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             if (lyricsFile == null || !lyricsFile.Exists)
             {
-                notify("Select a lyrics file (.txt, .lrc or .ttml) first.");
+                notify("Select a lyrics file (.txt, .lrc, .elrc or .ttml) first.");
                 return;
             }
 
-            // A TTML needs neither the aligner nor the audio: it arrives already word-timed, so it
-            // is converted and applied on the spot, and the button works on a machine with no
-            // aligner environment at all. Recognised on its CONTENT as well as its name, so a TTML
-            // saved under some other extension is converted rather than handed to the aligner as
-            // though it were a lyrics file.
+            // TTML and enhanced LRC already contain word timing and need neither audio nor
+            // an aligner. Content detection also covers enhanced LRC saved with a .lrc name.
             if (!tryReadLyrics(lyricsFile, out string lyricsContent))
                 return;
 
-            if (TtmlParser.IsTtmlFile(lyricsFile.FullName) || TtmlParser.LooksLikeTtml(lyricsContent))
-            {
-                importTtml(lyricsFile, lyricsContent);
+            if (tryImportTimedLyrics(lyricsFile, lyricsContent))
                 return;
-            }
 
             if (importer == null)
             {
@@ -683,6 +676,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 notify($"Couldn't read {file.Name}: {e.Message}");
                 return false;
             }
+        }
+
+        /// <summary>Handles files with authored word timing before the audio/aligner path.</summary>
+        private bool tryImportTimedLyrics(FileInfo file, string content)
+        {
+            if (TtmlParser.IsTtmlFile(file.FullName) || TtmlParser.LooksLikeTtml(content))
+            {
+                importTtml(file, content);
+                return true;
+            }
+
+            if (!LrcParser.HasWordStamps(content))
+                return false;
+
+            var lines = ImportSyllables.Apply(LrcParser.Parse(content, romanisationLanguage(content), out int clamped));
+
+            if (lines.Count == 0)
+            {
+                notify($"{file.Name} has no timed lyrics in it.");
+                return true;
+            }
+
+            TypeBeatEditorOperations.ReplaceLines(Beatmap, lines, TypeBeatEditorOperations.InferGranularity(lines));
+            string message = $"Imported {lines.Count} lyric lines from {file.Name}.";
+
+            if (LyricMapImporter.ClampedWordStampsNotice(clamped) is string notice)
+                message += " " + notice + ".";
+
+            notify(message);
+            return true;
         }
 
         /// <summary>

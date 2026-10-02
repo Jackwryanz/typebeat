@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Utils;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using osuTK.Graphics;
 
@@ -25,8 +26,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
     /// <summary>
     /// The UNDERLINE PACE HUE (backlog 228): the sung-sweep rail under a lyric line is cut into one
-    /// band per WORD or authored subdivision. The whole-map mode colours each band relative to
-    /// every band in the map; the previous-segment mode colours it relative to the band before it.
+    /// band per WORD or authored subdivision. The map-relative mode compares each band with
+    /// the average WPM; the acceleration-based mode compares it with the band before it.
     /// Red indicates faster and green indicates slower.
     ///
     /// <para>Purely display. Nothing here is read by judgement, scoring, the replay, the wire or any
@@ -140,7 +141,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <para>A NaN rank (which no comparison would catch) falls to the middle of the buffer, so
         /// the worst case is a neutral band rather than a NaN colour.</para>
         /// </summary>
-        public static Color4 ColourForRank(double percentileRank)
+        public static Color4 ColourForRank(double percentileRank) => ColourForRank(percentileRank, 0);
+
+        public static Color4 ColourForRank(double percentileRank, double opacityCurve)
         {
             double r = double.IsNaN(percentileRank) ? 0.5 : Math.Clamp(percentileRank, 0, 1);
 
@@ -163,9 +166,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // The hue and the opacity are composed rather than interpolated together: the hue walks
             // the framework's own colour ramp (linear light, like every other ramp here) while the
-            // alpha is a plain linear lift, and neither has to know about the other.
+            // opacity has its own adjustable linear-to-exponential ramp.
+            double curve = double.IsFinite(opacityCurve) ? Math.Clamp(opacityCurve / 100, 0, 1) : 0;
+            double exponential = (Math.Exp(4 * t) - 1) / (Math.Exp(4) - 1);
+            double opacityAmount = t + (exponential - t) * curve;
             return Interpolation.ValueAt(t, TypeBeatStyle.SungAccent, end, 0d, 1d)
-                                .Opacity((float)(NEUTRAL_ALPHA + (HUED_ALPHA - NEUTRAL_ALPHA) * t));
+                                .Opacity((float)(NEUTRAL_ALPHA + (HUED_ALPHA - NEUTRAL_ALPHA) * opacityAmount));
         }
 
         /// <summary>
@@ -175,13 +181,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// is fully red.
         /// </summary>
         public static Color4 ColourForPreviousSpeed(double speed, double? previousSpeed,
-                                                     double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT)
+                                                     double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT, double opacityCurve = 0)
         {
             if (!previousSpeed.HasValue)
                 return NeutralColour;
 
             if (previousSpeed.Value <= 0)
-                return speed > 0 ? ColourForRank(1) : NeutralColour;
+                return speed > 0 ? ColourForRank(1, opacityCurve) : NeutralColour;
 
             double change = (speed - previousSpeed.Value) / previousSpeed.Value;
             double threshold = double.IsFinite(maxChangePercent)
@@ -189,10 +195,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 : DEFAULT_MAX_CHANGE_PERCENT / 100;
 
             if (change > 0)
-                return ColourForRank(NEUTRAL_HI_RANK + Math.Min(change / threshold, 1) * (1 - NEUTRAL_HI_RANK));
+                return ColourForRank(NEUTRAL_HI_RANK + Math.Min(change / threshold, 1) * (1 - NEUTRAL_HI_RANK), opacityCurve);
 
             if (change < 0)
-                return ColourForRank(NEUTRAL_LO_RANK - Math.Min(-change / threshold, 1) * NEUTRAL_LO_RANK);
+                return ColourForRank(NEUTRAL_LO_RANK - Math.Min(-change / threshold, 1) * NEUTRAL_LO_RANK, opacityCurve);
+
+            return NeutralColour;
+        }
+
+        /// <summary>
+        /// Compare a section with the whole-map average, in the same speed units. At a maximum
+        /// change of p percent, full green is average / (1 + p/100) and full red is
+        /// average * (1 + p/200). The average itself stays neutral.
+        /// </summary>
+        public static Color4 ColourForMapAverage(double speed, double averageSpeed,
+                                                  double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT, double opacityCurve = 0)
+        {
+            if (!double.IsFinite(speed) || !double.IsFinite(averageSpeed) || averageSpeed <= 0)
+                return NeutralColour;
+
+            if (speed <= 0)
+                return ColourForRank(0, opacityCurve);
+
+            double threshold = double.IsFinite(maxChangePercent)
+                ? Math.Clamp(maxChangePercent, 25, 150) / 100
+                : DEFAULT_MAX_CHANGE_PERCENT / 100;
+
+            if (speed > averageSpeed)
+            {
+                double amount = Math.Min((speed / averageSpeed - 1) / (threshold / 2), 1);
+                return ColourForRank(NEUTRAL_HI_RANK + amount * (1 - NEUTRAL_HI_RANK), opacityCurve);
+            }
+
+            if (speed < averageSpeed)
+            {
+                double amount = Math.Min((averageSpeed / speed - 1) / threshold, 1);
+                return ColourForRank(NEUTRAL_LO_RANK - amount * NEUTRAL_LO_RANK, opacityCurve);
+            }
 
             return NeutralColour;
         }
@@ -368,12 +407,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>Colour each word or subdivision against its immediate predecessor, across line breaks.</summary>
         public static PaceBand[][] BuildRelativeBands(IReadOnlyList<TypingLine> lines,
                                                         double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT,
-                                                        bool authoredSyllablesOnly = true)
-            => buildBands(lines, relativeToPrevious: true, maxChangePercent, authoredSyllablesOnly);
+                                                        bool authoredSyllablesOnly = true, double opacityCurve = 0)
+            => buildBands(lines, relativeToPrevious: true, maxChangePercent, authoredSyllablesOnly, opacityCurve: opacityCurve);
+
+        /// <summary>Colour every section against the map's average WPM, including the first section.</summary>
+        public static PaceBand[][] BuildMapRelativeBands(IReadOnlyList<TypingLine> lines, double averageWpm,
+                                                           double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT,
+                                                           bool authoredSyllablesOnly = true, double opacityCurve = 0)
+            => buildBands(lines, relativeToPrevious: false, maxChangePercent, authoredSyllablesOnly,
+                averageWpm * LyricPaceStatistics.CHARS_PER_WORD / 60000, opacityCurve);
 
         private static PaceBand[][] buildBands(IReadOnlyList<TypingLine> lines, bool relativeToPrevious,
                                                 double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT,
-                                                bool authoredSyllablesOnly = true)
+                                                bool authoredSyllablesOnly = true, double? mapAverageSpeed = null, double opacityCurve = 0)
         {
             int m = lines.Count;
             var perLine = new PaceSegment[m][];
@@ -387,7 +433,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     speeds.Add(segment.Speed);
             }
 
-            double[] ranks = relativeToPrevious ? Array.Empty<double>() : RanksOf(speeds);
+            double[] ranks = relativeToPrevious || mapAverageSpeed.HasValue ? Array.Empty<double>() : RanksOf(speeds);
 
             var bands = new PaceBand[m][];
             int at = 0;
@@ -400,9 +446,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 for (int j = 0; j < perLine[k].Length; j++)
                 {
                     var segment = perLine[k][j];
-                    Color4 colour = relativeToPrevious
-                        ? ColourForPreviousSpeed(segment.Speed, previousSpeed, maxChangePercent)
-                        : ColourForRank(ranks[at]);
+                    Color4 colour = mapAverageSpeed.HasValue
+                        ? ColourForMapAverage(segment.Speed, mapAverageSpeed.Value, maxChangePercent, opacityCurve)
+                        : relativeToPrevious
+                            ? ColourForPreviousSpeed(segment.Speed, previousSpeed, maxChangePercent, opacityCurve)
+                            : ColourForRank(ranks[at], opacityCurve);
 
                     bands[k][j] = new PaceBand(segment.StartCell, segment.EndCellExclusive, colour);
                     previousSpeed = segment.Speed;

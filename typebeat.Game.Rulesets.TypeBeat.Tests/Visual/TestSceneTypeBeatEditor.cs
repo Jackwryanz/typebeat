@@ -90,6 +90,90 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
+        public void TestJapaneseOriginalWordEditKeepsTheEditorResponsive()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("prepare Japanese originals", () =>
+            {
+                EditorBeatmap.Metadata.Language = BeatmapLanguage.Japanese;
+                TypeBeatEditorOperations.SetLineText(EditorBeatmap, firstLine(), "空");
+                state().SelectedLine.Value = firstLine();
+            });
+            AddUntilStep("original word editor shown", () =>
+                Editor.ChildrenOfType<WordScriptEditor>().Single().WordColumnCount == 1);
+
+            typebeat.Game.Graphics.UserInterface.OsuTextBox originalBox() => Editor.ChildrenOfType<WordScriptEditor>().Single()
+                .ChildrenOfType<typebeat.Game.Graphics.UserInterface.OsuTextBox>().Single(b => b.PlaceholderText.ToString() == "original");
+
+            AddStep("focus original word", () =>
+            {
+                InputManager.MoveMouseTo(originalBox());
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("original focused", () => originalBox().HasFocus);
+            AddStep("enter pasted kanji", () => originalBox().Text = "天");
+            AddStep("commit original", () => InputManager.Key(Key.Enter));
+            AddUntilStep("kanji kept and romanisation updated", () => firstLine().Line.RawText == "ten"
+                && firstLine().Line.Units.Single().Original == "天");
+            AddAssert("original span preserved", () => firstLine().Line.Units.Single().StartTime == 1000
+                && firstLine().Line.Units.Single().EndTime == 3000);
+            AddAssert("Polyglot keeps the original glyph", () =>
+                Rulesets.TypeBeat.Gameplay.PolyglotLine.Derive(firstLine().Line, "japanese").Line.RawText == "天");
+        }
+
+        [TestCase(Key.ControlLeft, 0)]
+        [TestCase(Key.LWin, 0)]
+        [TestCase(Key.ControlLeft, 200)]
+        [TestCase(Key.LWin, 200)]
+        public void TestModifierClickMergesWordsAndOriginals(Key modifier, double gap)
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("prepare adjacent words with originals", () =>
+            {
+                EditorBeatmap.Metadata.Language = BeatmapLanguage.Japanese;
+                TypeBeatEditorOperations.SetLineText(EditorBeatmap, firstLine(), "こんにち せかい");
+                TypeBeatEditorOperations.SetUnitTiming(EditorBeatmap, firstLine(), 0, 1000, 1800);
+                TypeBeatEditorOperations.SetUnitTiming(EditorBeatmap, firstLine(), 1, 1800 + gap, 3000);
+                state().ShowOriginalLyrics.Value = modifier == Key.LWin;
+                state().SelectedLine.Value = firstLine();
+                EditorClock.Stop();
+                EditorClock.Seek(1000);
+                state().RequestViewSnap(2000);
+            });
+            AddUntilStep("two original word columns", () =>
+                Editor.ChildrenOfType<WordScriptEditor>().Single().WordColumnCount == 2);
+            double caret = 0;
+            AddStep("plain click on gap", () =>
+            {
+                InputManager.MoveMouseTo(stripPointAt(1800 + gap / 2));
+                InputManager.Click(MouseButton.Left);
+            });
+            AddAssert("plain click keeps words separate", () => firstLine().Line.Units.Count == 2);
+            AddStep("hold modifier over the gap", () =>
+            {
+                caret = EditorClock.CurrentTime;
+                InputManager.MoveMouseTo(stripPointAt(1800 + gap / 2));
+                InputManager.PressKey(modifier);
+            });
+            AddStep("click to join", () => InputManager.Click(MouseButton.Left));
+            AddStep("release modifier", () => InputManager.ReleaseKey(modifier));
+            AddUntilStep("one joined word", () => firstLine().Line.RawText == "konnichisekai" && firstLine().Line.Units.Count == 1);
+            AddAssert("originals joined too", () => firstLine().Line.Units.Single().Original == "こんにちせかい"
+                && firstLine().Line.Original == "こんにちせかい");
+            AddUntilStep("original word columns refreshed", () =>
+                Editor.ChildrenOfType<WordScriptEditor>().Single().WordColumnCount == 1);
+            AddAssert("merged word selected", () => state().SelectedUnitIndices.SetEquals(new[] { 0 }));
+            AddAssert("merge did not seek", () => Math.Abs(EditorClock.CurrentTime - caret) < 1);
+            AddStep("undo merge", () => Editor.Undo());
+            AddUntilStep("both words and originals restored", () => firstLine().Line.Units.Count == 2
+                && firstLine().Line.Units[0].Original == "こんにち" && firstLine().Line.Units[1].Original == "せかい");
+            AddAssert("gap timing restored", () => firstLine().Line.Units[0].EndTime == 1800
+                && firstLine().Line.Units[1].StartTime == 1800 + gap);
+            AddStep("redo merge", () => Editor.Redo());
+            AddUntilStep("join restored", () => firstLine().Line.Units.Count == 1 && firstLine().Line.Units.Single().Original == "こんにちせかい");
+        }
+
+        [Test]
         public void TestLyricComposeScreenSurfaces()
         {
             AddUntilStep("lyric compose screen shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());

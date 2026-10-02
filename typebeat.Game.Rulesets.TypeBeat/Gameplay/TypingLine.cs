@@ -61,7 +61,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool IsCountable => IsTypeable && Expected != ' ';
 
-        public double TargetTime { get; }
+        public double TargetTime { get; internal set; }
 
         public CellState State { get; internal set; }
 
@@ -255,7 +255,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// spans take each token's own unit bounds in <see cref="FromLyricLine"/>, so a stored
         /// replay re-derives byte-identically across this change.</para>
         /// </summary>
-        public double SweepEndTime { get; }
+        public double SweepEndTime { get; private set; }
 
         /// <summary>
         /// When this line becomes typeable: a constant cue lead before its first typeable cell's
@@ -264,7 +264,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// boundary otherwise: a line whose vocals start late in its window activates late, and
         /// the gap in between is a dead zone where no line is active.
         /// </summary>
-        public double ActivationTime { get; }
+        public double ActivationTime { get; private set; }
 
         /// <summary>
         /// When this line's vocals actually begin: the first typeable cell's target time, falling
@@ -272,14 +272,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// previous line's <see cref="SingEndTime"/> this measures the *perceived* instrumental
         /// stretch between two lines (what a player hears as "no lyrics").
         /// </summary>
-        public double FirstVocalTime { get; }
+        public double FirstVocalTime { get; private set; }
 
         /// <summary>
         /// Extra typeable time past <see cref="EndTime"/> before the engine may force-seal an
         /// incomplete line. Positive when source vocals overrun the boundary (overlapping lines)
         /// or when the last cell's target sits on the boundary itself.
         /// </summary>
-        public double SealGraceMs { get; }
+        public double SealGraceMs { get; private set; }
 
         public int TypeableCount { get; }
 
@@ -427,11 +427,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Times are clamped monotonic non-decreasing at construction.
         /// </summary>
         private readonly List<(double time, double index)> sungPoints;
+        private readonly double lastUnitEnd;
+        private Func<TypingLine>? alignedTimingFactory;
+        private double[]? alignedTargets;
+        private double alignedSealGrace;
+        private double[]? legacyTargets;
+        private double legacySealGrace;
+        private bool alignedSubdivisionTargets;
+
+        /// <summary>Switch timing eras without replacing cells referenced by the renderer or engine.</summary>
+        internal void SetAlignedSubdivisionTargets(bool aligned)
+        {
+            if (alignedSubdivisionTargets == aligned)
+                return;
+
+            if (alignedTargets == null)
+            {
+                var alignedTiming = alignedTimingFactory!();
+                alignedTargets = alignedTiming.Cells.Select(c => c.TargetTime).ToArray();
+                alignedSealGrace = alignedTiming.SealGraceMs;
+                alignedTimingFactory = null;
+                legacyTargets = Cells.Select(c => c.TargetTime).ToArray();
+                legacySealGrace = SealGraceMs;
+            }
+
+            alignedSubdivisionTargets = aligned;
+            for (int i = 0; i < Cells.Count; i++)
+                Cells[i].TargetTime = aligned ? alignedTargets[i] : legacyTargets![i];
+            SealGraceMs = aligned ? alignedSealGrace : legacySealGrace;
+            rebuildSungPoints();
+        }
 
         private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGrouping authored, SyllableGrouping natural, WordGroup[] words, int[] cellWord, double lastUnitEnd,
                            int[]? jamoHead = null)
         {
             Source = source;
+            this.lastUnitEnd = lastUnitEnd;
             this.jamoHead = jamoHead;
             AuthoredGrouping = authored;
             NaturalGrouping = natural.SameAs(authored) ? authored : natural;
@@ -460,9 +491,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             TypeableCount = typeable;
 
+            sungPoints = new List<(double, double)>(typeable + 2);
+            rebuildSungPoints();
+        }
+
+        private void rebuildSungPoints()
+        {
+            sungPoints.Clear();
+            sungPoints.Add((StartTime, 0));
             double? firstTypeableTarget = null;
 
-            foreach (var c in cells)
+            foreach (var c in Cells)
             {
                 if (c.IsTypeable)
                 {
@@ -478,15 +517,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             FirstVocalTime = firstTypeableTarget ?? StartTime;
 
             // Pre-build the sung-position polyline, clamping times monotonic.
-            sungPoints = new List<(double, double)>(typeable + 2) { (StartTime, 0) };
             double lastTime = StartTime;
 
-            for (int i = 0; i < cells.Count; i++)
+            for (int i = 0; i < Cells.Count; i++)
             {
-                if (!cells[i].IsTypeable)
+                if (!Cells[i].IsTypeable)
                     continue;
 
-                double t = Math.Max(cells[i].TargetTime, lastTime);
+                double t = Math.Max(Cells[i].TargetTime, lastTime);
                 sungPoints.Add((t, i));
                 lastTime = t;
             }
@@ -496,7 +534,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // exactly as the per-cell clamp above does (SungPositionAt's walk, its clamped ends and
             // UnderlinePace's spans all assume non-decreasing times).
             SweepEndTime = Math.Max(lastUnitEnd, lastTime);
-            sungPoints.Add((SweepEndTime, cells.Count));
+            sungPoints.Add((SweepEndTime, Cells.Count));
         }
 
         /// <summary>
@@ -546,10 +584,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>Letter timings are IDENTICAL in both modes: the per-word char spread below counts
         /// only <see cref="Typeability.IsCell"/> chars (never punctuation), so turning the mod on
         /// adds cells without moving any of the existing ones.</para>
+        ///
+        /// <para><paramref name="alignSubdivisionTargets"/> selects the TARGET ERA, exactly as
+        /// <see cref="TypingEngine.AlignSubdivisionTargets"/> does for an engine's lines: off (the
+        /// default, and every stored replay without the extended bit), the legacy targets; on, the
+        /// editor's effective character cuts every live run is judged on. It goes through the same
+        /// lazy aligned build the engine's setter uses, so the result is cell for cell what a live
+        /// engine holds.</para>
         /// </summary>
+        public static TypingLine FromLyricLine(LyricLine line, bool literate = false, bool alignSubdivisionTargets = false)
+            => withTargetEra(build(line, literate, CellRules.Default, null, null), alignSubdivisionTargets);
 
-        public static TypingLine FromLyricLine(LyricLine line, bool literate = false)
-            => build(line, literate, CellRules.Default, null, null);
+        private static TypingLine withTargetEra(TypingLine line, bool alignSubdivisionTargets)
+        {
+            if (alignSubdivisionTargets)
+                line.SetAlignedSubdivisionTargets(true);
+
+            return line;
+        }
 
         /// <summary>
         /// Flattens <paramref name="line"/> for a play that may carry the POLYGLOT mod (backlog 331).
@@ -568,13 +620,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <param name="language">The language the map's originals are romanised under (see
         /// <see cref="LyricOriginals.RomanisationLanguage"/>), which is what lets the romanised
         /// syllable cuts be carried back onto the original.</param>
-        public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language)
+        /// <param name="alignSubdivisionTargets">The target era (see <see cref="FromLyricLine"/>).</param>
+        public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language, bool alignSubdivisionTargets = false)
         {
             if (!polyglot)
-                return FromLyricLine(line, literate);
+                return FromLyricLine(line, literate, alignSubdivisionTargets);
 
             var derived = PolyglotLine.Derive(line, language);
-            return build(derived.Line, literate, CellRules.Polyglot, derived.NaturalSplits, derived.RawCluster);
+            return withTargetEra(build(derived.Line, literate, CellRules.Polyglot, derived.NaturalSplits, derived.RawCluster), alignSubdivisionTargets);
         }
 
         /// <summary>
@@ -614,7 +667,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public int JamoBlockHead(int cellIndex)
             => jamoHead != null && cellIndex >= 0 && cellIndex < jamoHead.Length ? jamoHead[cellIndex] : -1;
 
-        private static TypingLine build(LyricLine line, bool literate, CellRules rules, PolyglotLine.NaturalSplit?[]? naturalSplits, int[]? rawCluster)
+        private static TypingLine build(LyricLine line, bool literate, CellRules rules, PolyglotLine.NaturalSplit?[]? naturalSplits, int[]? rawCluster, bool alignSubdivisions = false)
 
         {
             string text = line.RawText;
@@ -659,7 +712,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 // Per-typeable-cell targets for this token, which is where syllable subdivisions AND
                 // an authored pause warp the char-to-time mapping (see tokenCellTargets).
-                double[] ramp = tokenCellTargets(token, unitStart, unitEnd, unit, k, rules.IsCell);
+                double[] ramp = tokenCellTargets(token, unitStart, unitEnd, unit, k, rules.IsCell, alignSubdivisions);
 
                 int j = 0;
 
@@ -787,8 +840,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             var natural = grouping(buildSyllables(line, tokens, cells, defaultSources, naturalSplits, rules.IsCell, authoredOnly: false), cells);
             var (words, cellWord) = buildWords(line, tokens, cells, defaultSources);
 
-            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), authored, natural, words, cellWord, lastUnitEnd,
+            var result = new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), authored, natural, words, cellWord, lastUnitEnd,
                 buildJamoHeads(cells, defaultSources, rawCluster));
+            if (!alignSubdivisions)
+                result.alignedTimingFactory = () => build(line, literate, rules, naturalSplits, rawCluster, alignSubdivisions: true);
+            return result;
         }
 
         private static SyllableGrouping grouping((SyllableGroup[] groups, int[] cellSyllable, int[] markerCells) built, TypingCell[] cells)
@@ -1395,24 +1451,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// Per-TYPEABLE-CELL target times for one token (<c>ramp[j]</c> is typeable char j of k).
         ///
-        /// <para>Without an authored pause this is exactly the old single call per char: syllable
-        /// subdivisions warp the char-to-time mapping WITHIN the word - instead of one flat ramp
-        /// across the unit's span, the boundaries split it into segments and the k chars are spread
-        /// evenly across the segments in index-space, so the caret reaches each boundary time at that
-        /// boundary's proportional char and moves linearly (but at a per-segment speed) between them.
-        /// Empty boundaries =&gt; the flat ramp. An AUTHORED char split (backlog 181, "ap|ple")
-        /// replaces that even distribution: the mapper's own cut says how many chars ride each
-        /// segment, so the same split drives these targets and the judgement groups in
-        /// <see cref="buildSyllables"/>. Derived (empty, or stale) keeps the index-even spread
-        /// untouched, which is what makes a map with no authored split flatten byte-identically to
-        /// before.</para>
+        /// <para>Subdivisions split the time span into segments, each with a linear character ramp.
+        /// Live play and the editor use the effective character cuts from <see cref="SyllableSegments"/>,
+        /// including derived cuts, so the caret and character windows meet the judgement groups at
+        /// the same boundaries. Legacy replay timing uses authored cuts when valid and otherwise
+        /// spreads characters evenly across the segment count. Empty boundaries give a flat ramp.</para>
         ///
         /// <para>An authored <see cref="TimedUnit.Pauses">pause</see> splits the word into the stretches
         /// it is sung in, timed independently (see <see cref="fillPausedStretches"/>); a rest the engine
         /// cannot honour - one whose edges have left the unit's span, whose split leaves every cell on one
         /// side of it, or that overlaps another - is ignored here, exactly as the loader drops it.</para>
         /// </summary>
-        private static double[] tokenCellTargets(string token, double unitStart, double unitEnd, TimedUnit? unit, int k, Func<char, bool>? isCell = null)
+        private static double[] tokenCellTargets(string token, double unitStart, double unitEnd, TimedUnit? unit, int k, Func<char, bool>? isCell = null, bool alignSubdivisions = false)
         {
             var ramp = new double[k];
 
@@ -1423,13 +1473,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             if (unit != null && PausedWord.Of(token, unitStart, unitEnd, unit, isCell) is PausedWord.Cut cut)
             {
-                fillPausedStretches(cut, ramp);
+                fillPausedStretches(cut, ramp, token, isCell, alignSubdivisions);
                 return ramp;
             }
 
-            int[]? cellCuts = unit != null && SyllableSegments.IsAuthoredValid(token, boundaries.Count + 1, unit.SyllableSplits)
-                ? SyllableSegments.CellCuts(token, unit.SyllableSplits, isCell)
-                : null;
+            int[]? cellCuts;
+            if (alignSubdivisions && boundaries.Count > 0)
+            {
+                // The editor and judgement groups use this split even when it is derived.
+                // Spreading by segment count alone moves the caret into unrelated letters.
+                var splits = SyllableSegments.SplitsFor(token, boundaries.Count + 1, unit?.SyllableSplits);
+                cellCuts = SyllableSegments.CellCuts(token, splits, isCell);
+                // A short word can yield fewer groups than requested. Its final group owns the tail.
+                boundaries = boundaries.Take(splits.Count).ToArray();
+            }
+            else
+                cellCuts = unit != null && SyllableSegments.IsAuthoredValid(token, boundaries.Count + 1, unit.SyllableSplits)
+                    ? SyllableSegments.CellCuts(token, unit.SyllableSplits, isCell)
+                    : null;
 
             for (int j = 0; j < k; j++)
                 ramp[j] = syllableCharTarget(unitStart, unitEnd, boundaries, k, j, cellCuts);
@@ -1452,12 +1513,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// judgement GROUPS are built from too (<see cref="buildSyllables"/> reads the same stretches),
         /// so the judges' windows part at a rest exactly as they part at a subdivider.</para>
         /// </summary>
-        private static void fillPausedStretches(PausedWord.Cut cut, double[] ramp)
+        private static void fillPausedStretches(PausedWord.Cut cut, double[] ramp, string token, Func<char, bool>? isCell, bool alignSubdivisions)
         {
             foreach (var piece in cut.Pieces)
             {
+                var boundaries = piece.Boundaries;
+                var cellCuts = piece.CellCuts;
+                if (alignSubdivisions && cellCuts == null && boundaries.Count > 0)
+                {
+                    var splits = piece.Cuts.Select(c => c - piece.FirstChar).ToArray();
+                    cellCuts = SyllableSegments.CellCuts(token.Substring(piece.FirstChar, piece.CharCount), splits, isCell);
+                    boundaries = boundaries.Take(splits.Length).ToArray();
+                }
                 for (int j = 0; j < piece.CellCount; j++)
-                    ramp[piece.FirstCell + j] = syllableCharTarget(piece.StartTime, piece.EndTime, piece.Boundaries, piece.CellCount, j, piece.CellCuts);
+                    ramp[piece.FirstCell + j] = syllableCharTarget(piece.StartTime, piece.EndTime, boundaries, piece.CellCount, j, cellCuts);
             }
         }
 
@@ -1468,7 +1537,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// moment the player will actually be typing, existing subdivisions and all.
         /// </summary>
         internal static double[] CellTargetsFor(TimedUnit unit, int typeableCount)
-            => tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, typeableCount);
+            => tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, typeableCount, alignSubdivisions: true);
 
         private const double min_boundary_grace_ms = 250;
         private const double max_seal_grace_ms = 700;

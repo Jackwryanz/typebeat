@@ -224,17 +224,17 @@ namespace typebeat.Game.Beatmaps
 
             private Texture getBackgroundFromStore(TextureStore store)
             {
-                if (string.IsNullOrEmpty(Metadata?.BackgroundFile))
+                if (string.IsNullOrEmpty(BackgroundFile))
                     return null;
 
                 try
                 {
-                    string fileStorePath = BeatmapSetInfo.GetPathForFile(Metadata.BackgroundFile);
+                    string fileStorePath = BeatmapSetInfo.GetPathForFile(BackgroundFile);
                     var texture = store.Get(fileStorePath);
 
                     if (texture == null)
                     {
-                        Logger.Log($"Beatmap background failed to load (file {Metadata.BackgroundFile} not found on disk at expected location {fileStorePath}).");
+                        Logger.Log($"Beatmap background failed to load (file {BackgroundFile} not found on disk at expected location {fileStorePath}).");
                         return null;
                     }
 
@@ -388,6 +388,43 @@ namespace typebeat.Game.Beatmaps
                 {
                     Logger.Error(e, "Storyboard failed to load");
                     storyboard = new Storyboard();
+                }
+
+                // Visuals are shared by the set, including older sets with per-difficulty
+                // declarations. Resolve the first available video in a stable order. Read files
+                // directly rather than sibling WorkingBeatmap.Storyboards, which could recurse.
+                var sharedVideo = storyboard.GetLayer("Video").Elements.OfType<StoryboardVideo>()
+                                            .FirstOrDefault(v => v.Source == StoryboardElementSource.Shared);
+                foreach (var difficulty in BeatmapSetInfo.Beatmaps)
+                {
+                    try
+                    {
+                        StoryboardVideo video;
+                        if (difficulty.Equals(BeatmapInfo))
+                            video = storyboard.PrimaryVideo;
+                        else
+                        {
+                            if (difficulty.Path == null)
+                                continue;
+                            using var stream = GetStream(BeatmapSetInfo.GetPathForFile(difficulty.Path));
+                            if (stream == null)
+                                continue;
+
+                            using var reader = new LineBufferedReader(stream);
+                            video = Decoder.GetDecoder<Storyboard>(reader).Decode(reader).PrimaryVideo ?? sharedVideo;
+                        }
+                        if (video == null || BeatmapSetInfo.GetFile(video.Path) == null)
+                            continue;
+
+                        var layer = storyboard.GetLayer("Video");
+                        layer.Elements.RemoveAll(e => e is StoryboardVideo);
+                        layer.Elements.Insert(0, new StoryboardVideo(StoryboardElementSource.Beatmap, video.Path, video.StartTime));
+                        break;
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.Error(e, "Shared beatmap video failed to load");
+                    }
                 }
 
                 storyboard.BeatmapInfo = BeatmapInfo;

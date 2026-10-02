@@ -427,6 +427,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // replay recorded before it re-derives on the natural groups it was played against.
                 AuthoredSyllablesOnly = true,
 
+                // Character targets and the caret use the same cuts as the editor subdivisions.
+                AlignSubdivisionTargets = true,
+
                 FlexibleCaretFromMod = legacyFletcher,
 
                 // THE ONE MOD FLAG SET HERE THAT IS NOT AN ERA (backlog 231). A stored replay can
