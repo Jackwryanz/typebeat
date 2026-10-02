@@ -34,10 +34,16 @@ namespace typebeat.Game.Beatmaps
         public BeatmapMetadata Metadata => BeatmapInfo.Metadata;
 
         /// <summary>
-        /// The set's first available background image, shared by all its difficulties.
+        /// This difficulty's background image when it names one the set holds, otherwise the set's first
+        /// available one. A set normally shares one image across its difficulties, but the editor can give
+        /// a difficulty its own (the setup screen's per-difficulty background tick), and that one wins here.
+        /// A difficulty naming no image, or a missing one, still inherits its siblings'.
         /// </summary>
-        public string BackgroundFile => BeatmapSetInfo.Beatmaps.Select(b => b.Metadata.BackgroundFile)
-            .FirstOrDefault(path => !string.IsNullOrEmpty(path) && BeatmapSetInfo.GetFile(path) != null) ?? Metadata.BackgroundFile;
+        public string BackgroundFile => hasUsableFile(Metadata.BackgroundFile)
+            ? Metadata.BackgroundFile
+            : BeatmapSetInfo.Beatmaps.Select(b => b.Metadata.BackgroundFile).FirstOrDefault(hasUsableFile) ?? Metadata.BackgroundFile;
+
+        private bool hasUsableFile(string path) => !string.IsNullOrEmpty(path) && BeatmapSetInfo.GetFile(path) != null;
 
         public Storyboard Storyboard => storyboard.Value;
 

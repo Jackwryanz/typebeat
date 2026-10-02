@@ -98,7 +98,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
-        public void OldConflictingDifficultyVisualsUseTheSameSetResources()
+        public void OldConflictingDifficultyVisualsShareTheVideoButKeepTheirOwnImage()
         {
             AddStep("give one difficulty its own visual settings", () =>
             {
@@ -113,7 +113,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 manager.Save(other.BeatmapInfo, other.Beatmap, storyboard: storyboard);
             });
             AddAssert("stored difficulty has a conflicting offset", () => savedStoryboard(missingId).PrimaryVideo!.StartTime == 990);
-            AddAssert("every difficulty resolves the same image", () => new[] { firstId, missingId, copiedId }.All(id => reload(id).BackgroundFile == "original.png"));
+            // A difficulty naming an image of its own keeps it (the setup screen's per-difficulty
+            // background tick writes exactly this); its siblings stay on the shared one.
+            AddAssert("the difficulty with its own image resolves it", () => reload(missingId).BackgroundFile == "alternative.png");
+            AddAssert("the others resolve the shared image", () => new[] { firstId, copiedId }.All(id => reload(id).BackgroundFile == "original.png"));
             AddAssert("every difficulty resolves the same video timing", () => new[] { firstId, missingId, copiedId }.All(id => reload(id).Storyboard.PrimaryVideo!.StartTime == -1250));
         }
 

@@ -61,8 +61,21 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
 
         /// <summary>
         /// Hint text containing an extended description of this file selector, displayed in a tooltip when hovering the caption.
+        /// Settable after load, so a hint can follow a sibling control (the editor's per-difficulty background tick).
         /// </summary>
-        public LocalisableString HintText { get; init; }
+        public LocalisableString HintText
+        {
+            get => hintText;
+            set
+            {
+                hintText = value;
+
+                if (caption != null)
+                    caption.TooltipText = value;
+            }
+        }
+
+        private LocalisableString hintText;
 
         /// <summary>
         /// Text displayed in the selector when no file is selected.
@@ -79,7 +92,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
 
         private FormControlBackground background = null!;
 
-        private FormFieldCaption caption = null!;
+        private FormFieldCaption? caption;
         private OsuSpriteText placeholderText = null!;
         private OsuSpriteText filenameText = null!;
 
@@ -220,7 +233,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
 
         private void updateState()
         {
-            caption.Colour = Current.Disabled ? colourProvider.Foreground1 : colourProvider.Content2;
+            caption!.Colour = Current.Disabled ? colourProvider.Foreground1 : colourProvider.Content2;
             filenameText.Colour = Current.Disabled || Current.Value == null ? colourProvider.Foreground1 : colourProvider.Content1;
 
             if (Current.Disabled)

@@ -222,8 +222,10 @@ namespace typebeat.Game.Beatmaps
             targetBeatmapSet.Beatmaps.Add(newBeatmap.BeatmapInfo);
             newBeatmap.BeatmapInfo.BeatmapSet = targetBeatmapSet;
 
-            // Images and background videos belong to the set. A new difficulty must inherit
-            // both, including the video's sync, without sharing mutable storyboard state.
+            // Background videos belong to the set, and so does the image unless the reference was given
+            // its own (the setup screen's per-difficulty tick), in which case the new difficulty starts
+            // on the reference's image. It inherits both, including the video's sync, without sharing
+            // mutable storyboard state.
             newBeatmap.Metadata.BackgroundFile = referenceWorkingBeatmap.BackgroundFile;
             var storyboard = new Storyboard();
             if (referenceWorkingBeatmap.Storyboard.PrimaryVideo is StoryboardVideo video)

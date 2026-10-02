@@ -117,6 +117,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
+        public void TestSingleDifficultySetShowsNoSeparateBackgroundTick()
+        {
+            showSetup();
+
+            AddAssert("the set has no second difficulty", () => Beatmap.Value.BeatmapSetInfo.Beatmaps.Count <= 1);
+
+            // With nothing to be separate FROM, the chooser simply writes the one difficulty, as before.
+            AddAssert("no tick is shown", () => section<ResourcesSection>().ChildrenOfType<FormCheckBox>()
+                                                                           .Where(c => c.Caption.ToString() == ResourcesSection.SEPARATE_BACKGROUND_CAPTION)
+                                                                           .All(c => !c.IsPresent));
+            AddAssert("not separate", () => !section<ResourcesSection>().HasSeparateBackground);
+        }
+
+        [Test]
         public void TestUndoingALaterEditDoesNotUnswapTheAudio()
         {
             // The swap copies the new file into the set and DELETES the old one, so an undo that

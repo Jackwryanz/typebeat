@@ -35,9 +35,29 @@ namespace typebeat.Game.Screens.Edit.Setup
         /// <summary>Caption of the video offset control; also how tests find it among the section's boxes.</summary>
         public const string VIDEO_OFFSET_CAPTION = "Video offset (ms)";
 
+        /// <summary>Caption of the per-difficulty background tick; also how tests find it.</summary>
+        public const string SEPARATE_BACKGROUND_CAPTION = "Separate background for this difficulty";
+
+        /// <summary>The background chooser's hint while it writes every difficulty (the tick is off).</summary>
+        public const string BACKGROUND_HINT_ALL_DIFFICULTIES = "Applies to all difficulties in this beatmap.";
+
+        /// <summary>The background chooser's hint while it writes only the open difficulty (the tick is on).</summary>
+        public const string BACKGROUND_HINT_THIS_DIFFICULTY = "Applies to this difficulty only.";
+
         private FormBeatmapFileSelector audioTrackChooser = null!;
         private AudioClippingIndicator clippingIndicator = null!;
         private FormFileSelector backgroundChooser = null!;
+
+        /// <summary>
+        /// The "Separate background for this difficulty" tick. Not stored anywhere: it is DERIVED on load
+        /// from whether this difficulty's background differs from the one its siblings share (see
+        /// <see cref="HasSeparateBackground"/>), and only ever steers where the next chosen file goes.
+        /// Hidden on a single-difficulty set, where the chooser writes that one difficulty as it always did.
+        /// </summary>
+        private FormCheckBox separateBackgroundCheckBox = null!;
+
+        private bool beatmapHasMultipleDifficulties;
+        private bool syncingSeparateBackgroundTick;
         private FormFileSelector videoChooser = null!;
         private FormNumberBox videoOffsetBox = null!;
 
@@ -100,7 +120,7 @@ namespace typebeat.Game.Screens.Edit.Setup
                 Height = 110,
             };
 
-            bool beatmapHasMultipleDifficulties = currentWorkingBeatmap.Value.BeatmapSetInfo.Beatmaps.Count > 1;
+            beatmapHasMultipleDifficulties = currentWorkingBeatmap.Value.BeatmapSetInfo.Beatmaps.Count > 1;
 
             Children = new Drawable[]
             {
@@ -108,7 +128,14 @@ namespace typebeat.Game.Screens.Edit.Setup
                 {
                     Caption = GameplaySettingsStrings.BackgroundHeader,
                     PlaceholderText = EditorSetupStrings.ClickToSelectBackground,
-                    HintText = "Applies to all difficulties in this beatmap.",
+                    HintText = BACKGROUND_HINT_ALL_DIFFICULTIES,
+                },
+                separateBackgroundCheckBox = new FormCheckBox
+                {
+                    Caption = SEPARATE_BACKGROUND_CAPTION,
+                    HintText = "Off: one background for the whole beatmap. On: the next background you choose applies to this difficulty only. Turning it off again puts this difficulty back on the shared background.",
+                    // Not present at all on a single-difficulty set, so the column does not leave a gap.
+                    Alpha = beatmapHasMultipleDifficulties ? 1 : 0,
                 },
                 videoChooser = new FormFileSelector(SupportedExtensions.VIDEO_EXTENSIONS)
                 {
@@ -188,6 +215,12 @@ namespace typebeat.Game.Screens.Edit.Setup
 
             if (!string.IsNullOrEmpty(currentWorkingBeatmap.Value.Metadata.AudioFile))
                 audioTrackChooser.Current.Value = new FileInfo(currentWorkingBeatmap.Value.Metadata.AudioFile);
+
+            syncingSeparateBackgroundTick = true;
+            separateBackgroundCheckBox.Current.Value = HasSeparateBackground;
+            syncingSeparateBackgroundTick = false;
+            updateBackgroundHint();
+            separateBackgroundCheckBox.Current.BindValueChanged(separateBackgroundTickChanged);
 
             backgroundChooser.Current.BindValueChanged(backgroundChanged);
             videoChooser.Current.BindValueChanged(videoChanged);
@@ -377,23 +410,137 @@ namespace typebeat.Game.Screens.Edit.Setup
             editor?.Save();
         }
 
+        /// <summary>
+        /// Puts a newly chosen image in as the background: into every difficulty of the set while the
+        /// per-difficulty tick is off (the default, and also how a set with separate backgrounds is
+        /// brought back to one), or into the open difficulty only while it is on.
+        /// </summary>
         public bool ChangeBackgroundImage(FileInfo source)
+            => ChangeBackgroundImage(source, applyToAllDifficulties: !separateBackgroundCheckBox.Current.Value);
+
+        public bool ChangeBackgroundImage(FileInfo source, bool applyToAllDifficulties)
         {
             if (!source.Exists)
                 return false;
 
-            changeResource(source, true, @"bg",
+            changeResource(source, applyToAllDifficulties, @"bg",
                 working => working.BeatmapInfo.Metadata.BackgroundFile,
-                (info, working, name) =>
-                {
-                    info.Metadata.BackgroundFile = name.AsNonNull();
-                    working.Metadata.BackgroundFile = name.AsNonNull();
-                });
+                writeBackgroundFilename);
 
-            backgroundPreview.UpdateBackground();
-            editor?.ApplyToBackground(bg => ((EditorBackgroundScreen)bg).RefreshBackgroundAsync());
+            refreshBackgroundDisplays();
             return true;
         }
+
+        /// <summary>
+        /// The background the set shares: the file a strict majority of its difficulties name, falling
+        /// back to the first difficulty's (the first, in the set's order, that names one). Empty when no
+        /// difficulty names one.
+        /// </summary>
+        /// <remarks>
+        /// Counted over the WHOLE set rather than over the open difficulty's siblings, because the tick is
+        /// derived from this and must not be symmetric: in a two-difficulty set with two different images,
+        /// "the siblings' image" differs from each difficulty's own, so both would read ticked. Over the
+        /// whole set a two-way split has no majority and the first difficulty's image is the shared one, so
+        /// exactly the other difficulty reads as separate. The consequence, stated so nobody is surprised:
+        /// a mapper who ticks the FIRST difficulty of a two-difficulty set and picks an image sees the tick
+        /// on the second difficulty after a reload instead, since nothing is stored to say which was ticked.
+        /// </remarks>
+        public string SharedBackgroundFile
+        {
+            get
+            {
+                var working = currentWorkingBeatmap.Value;
+                var difficulties = working.BeatmapSetInfo.Beatmaps;
+
+                // The open difficulty is read off the working beatmap, the copy every write goes to.
+                string[] named = difficulties.Select(b => b.Equals(working.BeatmapInfo) ? working.BeatmapInfo : b)
+                                             .Select(b => b.Metadata.BackgroundFile).Where(f => !string.IsNullOrEmpty(f)).ToArray();
+
+                if (named.Length == 0)
+                    return string.Empty;
+
+                var majority = named.GroupBy(f => f, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() * 2 > difficulties.Count);
+                return majority?.First() ?? named[0];
+            }
+        }
+
+        /// <summary>
+        /// Whether the open difficulty carries a background of its own: it names an image the set holds
+        /// and that image is not <see cref="SharedBackgroundFile"/>. This is what the per-difficulty tick
+        /// is derived from, so there is nothing new in the file format and nothing for the server to read.
+        /// A difficulty naming nothing (an older save that inherits its siblings' image) is not separate.
+        /// </summary>
+        public bool HasSeparateBackground
+        {
+            get
+            {
+                var working = currentWorkingBeatmap.Value;
+
+                if (working.BeatmapSetInfo.Beatmaps.Count <= 1)
+                    return false;
+
+                string own = working.BeatmapInfo.Metadata.BackgroundFile;
+                string shared = SharedBackgroundFile;
+
+                return !string.IsNullOrEmpty(own) && working.BeatmapSetInfo.GetFile(own) != null
+                                                  && !string.IsNullOrEmpty(shared)
+                                                  && !string.Equals(own, shared, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        /// <summary>
+        /// Points the open difficulty back at <see cref="SharedBackgroundFile"/> (what unticking the
+        /// per-difficulty tick does), through the same path a chosen file takes, so the image it stops
+        /// naming is deleted exactly when no difficulty names it any more. No-op (false) when the
+        /// difficulty is not on a separate background.
+        /// </summary>
+        public bool ResyncToSharedBackground()
+        {
+            if (!HasSeparateBackground)
+                return false;
+
+            string shared = SharedBackgroundFile;
+
+            changeResource(null, false, @"bg",
+                working => working.BeatmapInfo.Metadata.BackgroundFile,
+                writeBackgroundFilename,
+                existingFilename: shared);
+
+            // Show the shared file in the chooser without running a change for it: the rollback guard
+            // is exactly "set the displayed value, touch nothing".
+            rollingBackBackgroundChange = true;
+            backgroundChooser.Current.Value = new FileInfo(shared);
+            rollingBackBackgroundChange = false;
+
+            refreshBackgroundDisplays();
+            return true;
+        }
+
+        private static void writeBackgroundFilename(BeatmapInfo info, WorkingBeatmap working, string? name)
+        {
+            info.Metadata.BackgroundFile = name.AsNonNull();
+            working.Metadata.BackgroundFile = name.AsNonNull();
+        }
+
+        private void refreshBackgroundDisplays()
+        {
+            backgroundPreview.UpdateBackground();
+            editor?.ApplyToBackground(bg => ((EditorBackgroundScreen)bg).RefreshBackgroundAsync());
+        }
+
+        private void separateBackgroundTickChanged(ValueChangedEvent<bool> tick)
+        {
+            updateBackgroundHint();
+
+            // Ticking changes nothing until a file is chosen; unticking re-syncs to the shared image.
+            if (syncingSeparateBackgroundTick || tick.NewValue)
+                return;
+
+            ResyncToSharedBackground();
+        }
+
+        private void updateBackgroundHint()
+            => backgroundChooser.HintText = separateBackgroundCheckBox.Current.Value ? BACKGROUND_HINT_THIS_DIFFICULTY : BACKGROUND_HINT_ALL_DIFFICULTIES;
 
         public bool ChangeVideo(FileInfo? source)
         {
@@ -612,7 +759,8 @@ namespace typebeat.Game.Screens.Edit.Setup
             bool applyToAllDifficulties,
             string baseFilename,
             Func<WorkingBeatmap, string> readOldFilenameFrom,
-            Action<BeatmapInfo, WorkingBeatmap, string?> writeNewFilenameTo)
+            Action<BeatmapInfo, WorkingBeatmap, string?> writeNewFilenameTo,
+            string? existingFilename = null)
         {
             var current = currentWorkingBeatmap.Value;
             var set = current.BeatmapSetInfo;
@@ -627,9 +775,10 @@ namespace typebeat.Game.Screens.Edit.Setup
             var oldFiles = targets.Select(d => set.GetFile(readOldFilenameFrom(d.Working)))
                                   .Where(f => f != null).Distinct().ToArray();
 
-            string? newFilename = null;
+            // A file the set already holds (a re-sync onto the shared background) is pointed at, not added.
+            string? newFilename = existingFilename;
 
-            if (source != null)
+            if (source != null && existingFilename == null)
             {
                 // Choose a new filename that doesn't clash with any other existing files.
                 newFilename = $"{baseFilename}{source.Extension}";
