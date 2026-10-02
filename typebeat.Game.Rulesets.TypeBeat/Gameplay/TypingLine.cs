@@ -584,10 +584,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>Letter timings are IDENTICAL in both modes: the per-word char spread below counts
         /// only <see cref="Typeability.IsCell"/> chars (never punctuation), so turning the mod on
         /// adds cells without moving any of the existing ones.</para>
+        ///
+        /// <para><paramref name="alignSubdivisionTargets"/> selects the TARGET ERA, exactly as
+        /// <see cref="TypingEngine.AlignSubdivisionTargets"/> does for an engine's lines: off (the
+        /// default, and every stored replay without the extended bit), the legacy targets; on, the
+        /// editor's effective character cuts every live run is judged on. It goes through the same
+        /// lazy aligned build the engine's setter uses, so the result is cell for cell what a live
+        /// engine holds.</para>
         /// </summary>
+        public static TypingLine FromLyricLine(LyricLine line, bool literate = false, bool alignSubdivisionTargets = false)
+            => withTargetEra(build(line, literate, CellRules.Default, null, null), alignSubdivisionTargets);
 
-        public static TypingLine FromLyricLine(LyricLine line, bool literate = false)
-            => build(line, literate, CellRules.Default, null, null);
+        private static TypingLine withTargetEra(TypingLine line, bool alignSubdivisionTargets)
+        {
+            if (alignSubdivisionTargets)
+                line.SetAlignedSubdivisionTargets(true);
+
+            return line;
+        }
 
         /// <summary>
         /// Flattens <paramref name="line"/> for a play that may carry the POLYGLOT mod (backlog 331).
@@ -606,13 +620,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <param name="language">The language the map's originals are romanised under (see
         /// <see cref="LyricOriginals.RomanisationLanguage"/>), which is what lets the romanised
         /// syllable cuts be carried back onto the original.</param>
-        public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language)
+        /// <param name="alignSubdivisionTargets">The target era (see <see cref="FromLyricLine"/>).</param>
+        public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language, bool alignSubdivisionTargets = false)
         {
             if (!polyglot)
-                return FromLyricLine(line, literate);
+                return FromLyricLine(line, literate, alignSubdivisionTargets);
 
             var derived = PolyglotLine.Derive(line, language);
-            return build(derived.Line, literate, CellRules.Polyglot, derived.NaturalSplits, derived.RawCluster);
+            return withTargetEra(build(derived.Line, literate, CellRules.Polyglot, derived.NaturalSplits, derived.RawCluster), alignSubdivisionTargets);
         }
 
         /// <summary>

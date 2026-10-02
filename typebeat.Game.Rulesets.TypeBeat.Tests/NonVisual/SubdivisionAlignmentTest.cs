@@ -207,6 +207,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(flips, Is.EqualTo(3));
         }
 
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ThePublicFactoryBuildsTheLineTheLiveEngineHolds(bool literate)
+        {
+            var source = OverdoneLine();
+            var live = engine(source, true, literate).Lines[0];
+            var legacy = engine(source, false, literate).Lines[0];
+
+            foreach (var built in new[]
+                     {
+                         TypingLine.FromLyricLine(source, literate, alignSubdivisionTargets: true),
+                         TypingLine.ForMods(source, literate, false, null, alignSubdivisionTargets: true),
+                     })
+            {
+                Assert.That(built.Cells.Select(c => c.TargetTime), Is.EqualTo(live.Cells.Select(c => c.TargetTime)));
+                Assert.That(built.SealGraceMs, Is.EqualTo(live.SealGraceMs));
+            }
+
+            var plain = TypingLine.FromLyricLine(source, literate);
+            Assert.That(plain.Cells.Select(c => c.TargetTime), Is.EqualTo(legacy.Cells.Select(c => c.TargetTime)), "the default is still the legacy era");
+            Assert.That(plain.SealGraceMs, Is.EqualTo(legacy.SealGraceMs));
+            Assert.That(plain.Cells.Select(c => c.TargetTime), Is.Not.EqualTo(live.Cells.Select(c => c.TargetTime)), "the fixture separates the two eras");
+        }
+
         private static int countableAtOrBefore(TypingEngine e, double time)
             => e.Lines.SelectMany(l => l.Cells).Count(c => c.IsCountable && c.TargetTime <= time);
 
