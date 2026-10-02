@@ -66,11 +66,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// </summary>
         SungCaretStyle,
 
-        /// <summary>
-        /// Physical keyboard layout the player types on. Keys arrive by physical position, so a
-        /// non-QWERTY layout needs the produced character remapped (see <see cref="KeyboardLayout"/>).
-        /// </summary>
-        KeyboardLayout,
+        // NOTE (backlog 371): there used to be a KeyboardLayout member here. The layout now decides
+        // which physical key every SHORTCUT in the game answers to, so it moved to the game config
+        // (OsuSetting.KeyboardLayout), and KeyboardLayoutSettingCarry moves a stored choice across
+        // once and deletes the orphaned row.
 
         // NOTE (backlog 107): there used to be an AllowWrongInput member here. Typing wrong
         // characters through is now the DEFAULT gameplay for everyone and strict rejection is a mod
@@ -412,7 +411,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.CaretStyle, DEFAULT_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.CaretSmoothing, DEFAULT_CARET_SMOOTHING_MS, 0.0f, 50.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.SungCaretStyle, DEFAULT_SUNG_CARET_STYLE);
-            SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
             SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, true);
             SetDefault(TypeBeatRulesetSetting.ManualNewlines, true);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);

@@ -67,7 +67,7 @@ namespace typebeat.Game.Tests.Visual
 
             base.Content.AddRange(new Drawable[]
             {
-                InputManager = new ManualInputManager
+                InputManager = new KeycapManualInputManager
                 {
                     UseParentInput = true,
                     Child = mainContent

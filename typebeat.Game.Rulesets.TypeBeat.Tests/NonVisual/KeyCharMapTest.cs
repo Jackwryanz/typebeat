@@ -4,6 +4,7 @@
 using System;
 using NUnit.Framework;
 using osuTK.Input;
+using typebeat.Game.Input;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 

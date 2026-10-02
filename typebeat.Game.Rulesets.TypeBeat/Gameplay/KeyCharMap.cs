@@ -4,33 +4,10 @@
 // Ported verbatim from type!beat TypeBeat.Game/Gameplay/KeyCharMap.cs (regression-anchored).
 
 using osuTK.Input;
+using typebeat.Game.Input;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 {
-    /// <summary>
-    /// Physical keyboard layout the player's keycaps follow. osu!framework reports keys by physical
-    /// position (scancode), so the letter under a key can differ from what the QWERTY position
-    /// implies; the map corrects for that per layout.
-    /// </summary>
-    public enum KeyboardLayout
-    {
-        Qwerty,
-
-        /// <summary>
-        /// German/Central-European: the Y and Z keys are swapped relative to QWERTY, and four US
-        /// punctuation positions carry LETTERS instead (o-umlaut, a-umlaut, u-umlaut and eszett),
-        /// with the marks they displaced sitting elsewhere (see the QWERTZ punctuation table in
-        /// <see cref="KeyCharMap"/>).
-        /// </summary>
-        Qwertz,
-
-        /// <summary>
-        /// French: A↔Q and Z↔W are swapped relative to QWERTY, M sits on the QWERTY semicolon
-        /// position, and the QWERTY M position carries ',' (outside the typeable surface).
-        /// </summary>
-        Azerty
-    }
-
     /// <summary>
     /// Pure static map from a <see cref="Key"/> to the single character it produces on the restricted
     /// typing surface: letters a-z (lower-case by default, upper-cased when <c>shift</c> is held),
@@ -67,6 +44,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// </summary>
     public static class KeyCharMap
     {
+        /// <summary>
+        /// <see cref="TryMap(Key, KeyboardLayout, bool, bool, bool, out char)"/> for a key as live input
+        /// delivers it: the root input manager has already rewritten a physical letter key to its KEYCAP
+        /// key (<see cref="KeycapLayout"/>), so that every shortcut follows the keycap. This reads the
+        /// physical position back and maps THAT, so the produced character is exactly what the
+        /// physical key always produced on <paramref name="layout"/>, punctuation, shift and caps lock
+        /// included. Every table below stays keyed by physical position.
+        /// </summary>
+        public static bool TryMapKeycap(Key keycap, KeyboardLayout layout, bool shift, bool punctuation, bool capsLock, out char c)
+            => TryMap(KeycapLayout.ToPhysical(keycap, layout), layout, shift, punctuation, capsLock, out c);
+
         public static bool TryMap(Key key, out char c) => TryMap(key, KeyboardLayout.Qwerty, false, out c);
 
         public static bool TryMap(Key key, KeyboardLayout layout, out char c) => TryMap(key, layout, false, out c);

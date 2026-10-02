@@ -3,10 +3,13 @@
 
 using System.Collections.Generic;
 using osu.Framework.Allocation;
+using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics.Fonts;
+using typebeat.Game.Configuration;
 using typebeat.Game.Graphics.UserInterfaceV2;
+using typebeat.Game.Input;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -53,10 +56,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             FlowContent.Margin = new MarginPadding();
         }
 
-        [BackgroundDependencyLoader]
-        private void load()
+        [BackgroundDependencyLoader(true)]
+        private void load(OsuConfigManager? osuConfig)
         {
-            Children = BuildControls((TypeBeatRulesetConfigManager)Config);
+            Children = BuildControls((TypeBeatRulesetConfigManager)Config, osuConfig?.GetBindable<KeyboardLayout>(OsuSetting.KeyboardLayout));
         }
 
         /// <summary>
@@ -68,7 +71,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// typing font too: <see cref="fontManager"/> is resolved CanBeNull, so an absent one simply
         /// contributes no extra faces.
         /// </summary>
-        internal Drawable[] BuildControls(TypeBeatRulesetConfigManager config)
+        /// <param name="config">The ruleset's own settings.</param>
+        /// <param name="keyboardLayout">
+        /// The game-wide <see cref="OsuSetting.KeyboardLayout"/> (it moved out of the ruleset config
+        /// in backlog 371, because the root input manager reads it for every shortcut). The control
+        /// stays here, where players look for it; a test passes nothing and gets a detached bindable.
+        /// </param>
+        internal Drawable[] BuildControls(TypeBeatRulesetConfigManager config, Bindable<KeyboardLayout>? keyboardLayout = null)
         {
             var lyricFont = config.GetBindable<string>(TypeBeatRulesetSetting.LyricFont);
 
@@ -78,7 +87,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsItemV2(new FormEnumDropdown<KeyboardLayout>
                 {
                     Caption = "Keyboard layout",
-                    Current = config.GetBindable<KeyboardLayout>(TypeBeatRulesetSetting.KeyboardLayout),
+                    HintText = "The letters printed on your keys. Typing and every keyboard shortcut follow them.",
+                    Current = keyboardLayout ?? new Bindable<KeyboardLayout>(),
                 }),
                 new SettingsItemV2(new FormCheckBox
                 {

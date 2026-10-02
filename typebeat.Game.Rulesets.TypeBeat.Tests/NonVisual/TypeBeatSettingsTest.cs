@@ -4,6 +4,7 @@
 using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Graphics.UserInterfaceV2;
+using typebeat.Game.Input;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
