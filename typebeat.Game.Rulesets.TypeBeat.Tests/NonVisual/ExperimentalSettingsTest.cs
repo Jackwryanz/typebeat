@@ -40,7 +40,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// Everything still on trial in the section, in source order: the sync metric (backlog 251 put
-        /// it behind a switch), the local auto-aligner and its high-accuracy tier. Pinned by their
+        /// it behind a switch) and the local auto-aligner's high-accuracy tier (its on/off switch
+        /// was hidden by backlog 381, so it must NOT be listed). Pinned by their
         /// labels because that is the only thing a player sees: the bindables behind them deliberately
         /// did not move (Realm keys stored rows by enum member name), so nothing else here would
         /// notice a control quietly going missing.
@@ -68,9 +69,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Select(c => c.Caption.ToString()), Is.EqualTo(new[]
                 {
                     "Show sync metric",
-                    "Use local auto-aligner",
                     "High-accuracy alignment (about 4x slower per import)",
-                }));
+                }), "backlog 381 hid the 'Use local auto-aligner' switch: the install is the opt-in");
 
                 Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>(), Is.Empty, "pop-in controls live in type!beat");
                 Assert.That(controls.OfType<SettingsCheckbox>(), Is.Empty, "all experimental toggles use the shared form UI");
@@ -98,7 +98,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 qualityCheckbox.Current.Value = true;
                 Assert.That(config.Get<bool>(TypeBeatRulesetSetting.LocalAlignerHighQuality), Is.True);
 
-                // The aligner checkbox is meaningless without the installer, so the pair moved together.
+                // The high-accuracy checkbox is meaningless without the installer, so they sit together.
                 var installButton = controls.OfType<Container>().Select(c => c.Child).OfType<FormButton>().Single();
 
                 Assert.That(installButton.Caption.ToString(), Is.EqualTo("Install local auto-aligner (~2 GB)"));
@@ -106,6 +106,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // ILocalAlignerManager is resolved CanBeNull and is absent here, exactly as it is in a
                 // headless scene: the button must go dead rather than throw on a click nothing services.
                 Assert.That(installButton.Enabled.Value, Is.False);
+            }
+        }
+
+        /// <summary>
+        /// Backlog 381: the local-aligner switch is hidden, not deleted. With the surfacing flag
+        /// on, the row comes back in its old place (between the sync metric and the high-accuracy
+        /// tier) still bound to the same setting, so a returning hosted aligner only has to flip
+        /// <see cref="TypeBeatRulesetConfigManager.LOCAL_ALIGNER_TOGGLE_SURFACED"/>.
+        /// </summary>
+        [Test]
+        public void TheLocalAlignerSwitchIsHiddenButComesBackWithItsFlag()
+        {
+            var ruleset = new TypeBeatRuleset();
+            var subsection = (TypeBeatExperimentalSettingsSubsection)ruleset.CreateExperimentalSettings()!;
+
+            using (var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo))
+            {
+                var hidden = subsection.BuildControls(config).OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>();
+                Assert.That(hidden.Select(c => c.Caption.ToString()), Does.Not.Contain(TypeBeatExperimentalSettingsSubsection.LOCAL_ALIGNER_CAPTION));
+
+                var surfaced = subsection.BuildControls(config, showLocalAlignerToggle: true).OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().ToArray();
+
+                Assert.That(surfaced.Select(c => c.Caption.ToString()), Is.EqualTo(new[]
+                {
+                    "Show sync metric",
+                    TypeBeatExperimentalSettingsSubsection.LOCAL_ALIGNER_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.HIGH_QUALITY_CAPTION,
+                }));
+
+                var toggle = surfaced.Single(c => c.Caption.ToString() == TypeBeatExperimentalSettingsSubsection.LOCAL_ALIGNER_CAPTION);
+                Assert.That(toggle.Current.Value, Is.True, "defaults on");
+
+                toggle.Current.Value = false;
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled), Is.False, "still bound to the stored setting, not a copy");
             }
         }
 

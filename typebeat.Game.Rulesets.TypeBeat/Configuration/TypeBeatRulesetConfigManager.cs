@@ -30,11 +30,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// Whether the locally installed lyriclab auto-aligner is used for imports. On by default:
         /// when an installed environment exists it times the words; when off (or nothing is
         /// installed) imports fall back to the lyrics' own [mm:ss.xx] line stamps, which since the
-        /// server-side aligner was retired is the ONLY other source of timing. The setting still
-        /// earns its keep as the gate on the installed environment (a user who has paid the multi-GB
-        /// install can still choose the instant line-stamp path per import without uninstalling); it
-        /// never triggers the install itself, which stays an explicit action (the first-run prompt
-        /// and the Settings button).
+        /// server-side aligner was retired is the ONLY other source of timing. It never triggers the
+        /// install itself, which stays an explicit action (the first-run prompt and the Settings
+        /// button).
+        ///
+        /// <para>DORMANT since backlog 381: the switch is no longer offered in Settings (see
+        /// <see cref="TypeBeatRulesetConfigManager.LOCAL_ALIGNER_TOGGLE_SURFACED"/>). With the
+        /// server aligner gone the local one is the only auto-align path, so INSTALLING it is the
+        /// opt-in and uninstalling it is the opt-out, and the import path does not read this value
+        /// while the switch is hidden. The key, its default and every stored row are kept untouched
+        /// (a player who turned it off still has <c>False</c> on disk) so that a returning hosted
+        /// aligner, which would make "local or not" a real choice again, can surface the switch and
+        /// honour those rows exactly as they were left. Do not delete or rename the member: Realm
+        /// keys rows by member name.</para>
         /// </summary>
         LocalAlignerEnabled,
 
@@ -222,8 +230,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// instead of thirty seconds at six threads, twice that on two). That is a cost a player
         /// should choose, not one the game should impose on everybody's first import.
         ///
-        /// <para>Only consulted when <see cref="LocalAlignerEnabled"/> lets the aligner run at all,
-        /// and it never touches the install: the tier is a per-run flag of the same script, so both
+        /// <para>Only consulted when the aligner runs at all (it is installed, and, should
+        /// <see cref="LocalAlignerEnabled"/> ever be surfaced again, switched on), and it never
+        /// touches the install: the tier is a per-run flag of the same script, so both
         /// tiers work off one environment. An installed aligner older than version 6 has no tiers,
         /// so the flag is then left out (see <c>LyricMapImporter.AlignerArguments</c>).</para>
         ///
@@ -359,6 +368,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// </para>
         /// </summary>
         public const CaretStyle DEFAULT_SUNG_CARET_STYLE = CaretStyle.Line;
+
+        /// <summary>
+        /// Whether Settings &gt; Experimental offers the <see cref="TypeBeatRulesetSetting.LocalAlignerEnabled"/>
+        /// switch, and with it whether the import path honours its stored value. One flag for both on
+        /// purpose (backlog 381): a stored <c>False</c> the player can no longer see or change would be
+        /// an unreachable trap, an installed aligner that silently never runs while the failure copy
+        /// tells them to install it. So while the switch is hidden the INSTALL is the opt-in and the
+        /// stored value is ignored (not rewritten); setting this back to true restores the row and
+        /// re-honours every stored choice as it was left. Read through default parameters
+        /// (<c>LyricMapImportService.LocalAlignerEnabled</c>,
+        /// <c>TypeBeatExperimentalSettingsSubsection.BuildControls</c>) so a test can pin both arms.
+        /// </summary>
+        public const bool LOCAL_ALIGNER_TOGGLE_SURFACED = false;
 
         public TypeBeatRulesetConfigManager(SettingsStore? settings, RulesetInfo ruleset, int? variant = null)
             : base(migratePaceColourMode(settings, ruleset, variant ?? 0), ruleset, variant)

@@ -32,7 +32,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
     /// Also implements <see cref="ILocalAlignerManager"/>: installing the local auto-aligner into
     /// the game's DATA directory (so its multi-GB environment survives Velopack updates, which
     /// replace the application directory wholesale) and gating the local path behind
-    /// <see cref="TypeBeatRulesetSetting.LocalAlignerEnabled"/>.
+    /// <see cref="TypeBeatRulesetSetting.LocalAlignerEnabled"/>, a gate that stays open while that
+    /// switch is hidden (see <see cref="LocalAlignerEnabled"/>).
     /// </summary>
     public partial class LyricMapImportService : Component, ILyricMapImporter, ILocalAlignerManager
     {
@@ -89,7 +90,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
         }
 
-        private bool localAlignerEnabled() => config()?.Get<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled) ?? true;
+        private bool localAlignerEnabled() => LocalAlignerEnabled(config());
+
+        /// <summary>
+        /// Whether the import path may use an installed local aligner. While the switch is hidden
+        /// (<see cref="TypeBeatRulesetConfigManager.LOCAL_ALIGNER_TOGGLE_SURFACED"/>, backlog 381) this is
+        /// always true: being installed is the opt-in, and a stored <c>False</c> left by an older
+        /// install is ignored rather than migrated, so the row survives for a returning hosted aligner
+        /// but cannot strand a player with an aligner that never runs and a failure telling them to
+        /// install it. With the switch surfaced, the stored value is honoured and a missing config
+        /// reads as on. Static over an explicit config so a test can pin both arms.
+        /// </summary>
+        internal static bool LocalAlignerEnabled(TypeBeatRulesetConfigManager? config,
+                                                 bool toggleSurfaced = TypeBeatRulesetConfigManager.LOCAL_ALIGNER_TOGGLE_SURFACED)
+            => !toggleSurfaced || (config?.Get<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled) ?? true);
 
         /// <summary>
         /// The configured lyriclab path for import runs; null when the local aligner is switched
@@ -145,8 +159,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         private string? resolvedAlignerDir()
             => LyricMapImporter.ResolveLyricLabDir(effectiveConfiguredPathIgnoringEnable(), startDirectories());
 
-        // Install state must be reportable even while the "use local aligner" toggle is off,
-        // so the settings UI can say "installed but disabled" rather than "not installed".
+        // Install state must be reportable whatever the (currently hidden) "use local aligner"
+        // switch holds, so the settings button reads the install itself, never the switch.
         private string? effectiveConfiguredPathIgnoringEnable()
         {
             string? configured = config()?.Get<string>(TypeBeatRulesetSetting.LyricLabPath);
