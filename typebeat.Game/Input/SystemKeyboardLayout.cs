@@ -63,14 +63,25 @@ namespace typebeat.Game.Input
                     if ((state & 2) != 0) modifiers |= SDL_Keymod.SDL_KMOD_CAPS;
                     if ((state & 4) != 0) modifiers |= SDL_Keymod.SDL_KMOD_MODE | SDL_Keymod.SDL_KMOD_RALT;
 
-                    uint code = (uint)SDL_GetKeyFromScancode(scancode, modifiers, false);
-                    if (code > 0 && code <= char.MaxValue)
-                        next[(key, state)] = (char)code;
+                    if (ToCharacter(SDL_GetKeyFromScancode(scancode, modifiers, false)) is char character)
+                        next[(key, state)] = character;
                 }
             }
 
             Volatile.Write(ref characters, next);
         });
+
+        internal static char? ToCharacter(SDL_Keycode keycode)
+        {
+            // SDL's keypad digit keycodes are not Unicode, even with Num Lock on.
+            uint code = (uint)keycode;
+            if (code >= (uint)SDL_Keycode.SDLK_KP_1 && code <= (uint)SDL_Keycode.SDLK_KP_9)
+                return (char)('1' + code - (uint)SDL_Keycode.SDLK_KP_1);
+            if (keycode == SDL_Keycode.SDLK_KP_0)
+                return '0';
+
+            return code > 0 && code <= char.MaxValue ? (char)code : null;
+        }
 
         public char? Resolve(Key key, bool shift, bool capsLock, bool altGr)
         {

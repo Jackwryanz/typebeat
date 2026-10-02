@@ -6,6 +6,7 @@ using osu.Framework.Bindables;
 using osu.Framework.Input;
 using osu.Framework.Input.Bindings;
 using osuTK.Input;
+using SDL;
 using typebeat.Game.Input;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -15,6 +16,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     [TestFixture]
     public class SystemKeyboardLayoutTest
     {
+        [TestCase(SDL_Keycode.SDLK_KP_0, '0')]
+        [TestCase(SDL_Keycode.SDLK_KP_1, '1')]
+        [TestCase(SDL_Keycode.SDLK_KP_2, '2')]
+        [TestCase(SDL_Keycode.SDLK_KP_3, '3')]
+        [TestCase(SDL_Keycode.SDLK_KP_4, '4')]
+        [TestCase(SDL_Keycode.SDLK_KP_5, '5')]
+        [TestCase(SDL_Keycode.SDLK_KP_6, '6')]
+        [TestCase(SDL_Keycode.SDLK_KP_7, '7')]
+        [TestCase(SDL_Keycode.SDLK_KP_8, '8')]
+        [TestCase(SDL_Keycode.SDLK_KP_9, '9')]
+        public void SDLKeypadDigitsTypeInNormalAndLiteratePlay(SDL_Keycode keycode, char expected)
+        {
+            char? character = SystemKeyboardLayout.ToCharacter(keycode);
+            Assert.That(character, Is.EqualTo(expected));
+            foreach (bool punctuation in new[] { false, true })
+            {
+                Assert.That(SystemKeyCharMap.TryMap(character, character, punctuation, out char result), Is.True);
+                Assert.That(result, Is.EqualTo(expected));
+            }
+        }
+
+        [TestCase(SDL_Keycode.SDLK_UNKNOWN)]
+        [TestCase(SDL_Keycode.SDLK_LEFT)]
+        [TestCase(SDL_Keycode.SDLK_KP_ENTER)]
+        [TestCase(SDL_Keycode.SDLK_KP_MULTIPLY)]
+        [TestCase(SDL_Keycode.SDLK_KP_PERIOD)]
+        public void OtherSDLKeycodesRemainInert(SDL_Keycode keycode)
+            => Assert.That(SystemKeyboardLayout.ToCharacter(keycode), Is.Null);
+
+        [TestCase('t')]
+        [TestCase('T')]
+        [TestCase('!')]
+        public void SDLUnicodeKeycodesKeepTheirCharacters(char character)
+            => Assert.That(SystemKeyboardLayout.ToCharacter((SDL_Keycode)character), Is.EqualTo(character));
+
         [TestCase('t')]
         [TestCase('T')]
         [TestCase('0')]
