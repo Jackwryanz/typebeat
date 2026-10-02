@@ -217,6 +217,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 unit("aviation", 1000, 4000, 1800, 2600),
                 unit("seventeen", 4000, 11000, 4500, 5000, 6000)));
 
+        /// <summary>
+        /// A Literate fixture whose marks sit outside their spans under aligned targets: the '(' after
+        /// a gap before the word's start, and the apostrophe an authored split puts at the head of
+        /// the second syllable before that syllable's start (see
+        /// <see cref="AutoplayModMirrorsTheLiveEraCondition"/>).
+        /// </summary>
+        private static TypeBeatBeatmap createLiterateMarkedMap() => beatmap(
+            line("go (o'clock", 0, 6000, 5000,
+                unit("go", 500, 900),
+                new TimedUnit { Text = "(o'clock", StartTime = 1000, EndTime = 5000, SyllableBoundaries = new[] { 2000.0 }, SyllableSplits = new[] { 2 } }));
+
         private static double[] frameTimes(Replay replay)
             => replay.Frames.Cast<TypeBeatReplayFrame>().Select(f => f.Time).ToArray();
 
@@ -323,6 +334,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModEasy() }).Replay), Is.EqualTo(easySpan), "Easy carries its word shelter through");
             Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModHardRock() }).Replay), Is.EqualTo(classic), "Hard Rock reverts to point targets");
             Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModLiterate() }).Replay), Is.EqualTo(literateSpan), "Literate is still carried through");
+
+            // Under aligned targets every LETTER sits inside its own syllable and its own word, so
+            // the plain map above cannot tell the three arms apart. A Literate punctuation cell can:
+            // it is timed by the second pass, between its neighbours, so the '(' opening a word after
+            // a gap sits before the word's start and the apostrophe an authored split opens a
+            // syllable with sits before that syllable's start. The syllable arm presses both at
+            // their span starts, the shelter arm only the '(' (the apostrophe is inside the word),
+            // and the classic arm neither, so all three frame sets differ.
+            var marked = createLiterateMarkedMap();
+            double[] markedSpan = frameTimes(new TypeBeatAutoGenerator(marked, literate: true, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, authoredSyllablesOnly: true, alignSubdivisionTargets: true).Generate());
+            double[] markedClassic = frameTimes(new TypeBeatAutoGenerator(marked, literate: true, syllableTiming: false, authoredSyllablesOnly: true, alignSubdivisionTargets: true).Generate());
+            double[] markedEasy = frameTimes(new TypeBeatAutoGenerator(marked, literate: true, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, wordShelter: true, authoredSyllablesOnly: true, alignSubdivisionTargets: true).Generate());
+
+            Assert.That(markedSpan, Is.Not.EqualTo(markedClassic), "the fixture must distinguish the syllable arm under aligned targets");
+            Assert.That(markedEasy, Is.Not.EqualTo(markedSpan), "the fixture must distinguish the shelter from the syllable arm");
+            Assert.That(markedEasy, Is.Not.EqualTo(markedClassic), "the fixture must distinguish the shelter from the classic arm");
+
+            Assert.That(frameTimes(mod.CreateReplayData(marked, new Mod[] { new TypeBeatModLiterate() }).Replay), Is.EqualTo(markedSpan), "Literate keeps the syllable arm");
+            Assert.That(frameTimes(mod.CreateReplayData(marked, new Mod[] { new TypeBeatModLiterate(), new TypeBeatModEasy() }).Replay), Is.EqualTo(markedEasy),
+                "Literate with Easy keeps the word shelter");
+            Assert.That(frameTimes(mod.CreateReplayData(marked, new Mod[] { new TypeBeatModLiterate(), new TypeBeatModHardRock() }).Replay), Is.EqualTo(markedClassic),
+                "Literate with Hard Rock reverts to point targets");
 
             var frames = mod.CreateReplayData(map, Array.Empty<Mod>()).Replay.Frames.Cast<TypeBeatReplayFrame>().ToList();
             Assert.That(frames[0].IsConfigExtended && frames[0].AuthoredSyllablesOnly && frames[0].AlignSubdivisionTargets, Is.True, "the era header opens the frames");
