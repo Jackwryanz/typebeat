@@ -90,6 +90,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
+        public void TestJapaneseOriginalWordEditKeepsTheEditorResponsive()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("prepare Japanese originals", () =>
+            {
+                EditorBeatmap.Metadata.Language = BeatmapLanguage.Japanese;
+                TypeBeatEditorOperations.SetLineText(EditorBeatmap, firstLine(), "空");
+                state().SelectedLine.Value = firstLine();
+            });
+            AddUntilStep("original word editor shown", () =>
+                Editor.ChildrenOfType<WordScriptEditor>().Single().WordColumnCount == 1);
+
+            typebeat.Game.Graphics.UserInterface.OsuTextBox originalBox() => Editor.ChildrenOfType<WordScriptEditor>().Single()
+                .ChildrenOfType<typebeat.Game.Graphics.UserInterface.OsuTextBox>().Single(b => b.PlaceholderText.ToString() == "original");
+
+            AddStep("focus original word", () =>
+            {
+                InputManager.MoveMouseTo(originalBox());
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("original focused", () => originalBox().HasFocus);
+            AddStep("enter pasted kanji", () => originalBox().Text = "天");
+            AddStep("commit original", () => InputManager.Key(Key.Enter));
+            AddUntilStep("kanji kept and romanisation updated", () => firstLine().Line.RawText == "ten"
+                && firstLine().Line.Units.Single().Original == "天");
+            AddAssert("original span preserved", () => firstLine().Line.Units.Single().StartTime == 1000
+                && firstLine().Line.Units.Single().EndTime == 3000);
+            AddAssert("Polyglot keeps the original glyph", () =>
+                Rulesets.TypeBeat.Gameplay.PolyglotLine.Derive(firstLine().Line, "japanese").Line.RawText == "天");
+        }
+
+        [Test]
         public void TestLyricComposeScreenSurfaces()
         {
             AddUntilStep("lyric compose screen shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());

@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using Kawazu;
 using osu.Framework.Logging;
 
@@ -39,10 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             try
             {
-                List<Division> divisions;
-
-                lock (gate)
-                    divisions = converter.Value.GetDivisions(source).GetAwaiter().GetResult();
+                List<Division> divisions = getDivisions(source);
 
                 if (!string.Equals(string.Concat(divisions.Select(d => d.Surface)), source, StringComparison.Ordinal))
                     return null;
@@ -94,10 +92,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 // Kawazu's tagger is shared rather than reopening the dictionary for every word.
                 // Serialize access because the underlying MeCab tagger is mutable.
-                List<Division> divisions;
-
-                lock (gate)
-                    divisions = converter.Value.GetDivisions(source).GetAwaiter().GetResult();
+                List<Division> divisions = getDivisions(source);
 
                 var reading = new StringBuilder(source.Length * 2);
                 var sourceStarts = new List<int>();
@@ -159,6 +154,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 logFailure(e);
                 return null;
             }
+        }
+
+        private static List<Division> getDivisions(string source)
+        {
+            // Kawazu awaits its parse task with the caller's synchronization context. Starting
+            // that async call on the pool prevents its continuation from needing the editor
+            // thread while the synchronous authoring/Polyglot API waits for the result.
+            lock (gate)
+                return Task.Run(() => converter.Value.GetDivisions(source)).GetAwaiter().GetResult();
         }
 
         private static bool isJapanese(string? language)
