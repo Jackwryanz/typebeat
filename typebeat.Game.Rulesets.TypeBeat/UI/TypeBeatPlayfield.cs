@@ -920,6 +920,62 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             [Resolved]
             private GameHost? host { get; set; }
 
+            [Resolved]
+            private ISystemKeyboardLayout? systemKeyboard { get; set; }
+
+            private SystemKeyboardLayout? ownedSystemKeyboard;
+
+            private bool hasGameplayFocus
+            {
+                get
+                {
+                    if (!HasFocus)
+                        return false;
+
+                    // Nested input managers keep their own focus. The ruleset handler can
+                    // still report HasFocus while the outer manager focuses chat/settings.
+                    for (Drawable? scope = Parent; scope != null; scope = scope.Parent)
+                    {
+                        if (scope is not InputManager manager || manager.FocusedDrawable is not Drawable focused)
+                            continue;
+
+                        Drawable? owner = this;
+                        while (owner != null && owner != focused)
+                            owner = owner.Parent;
+                        if (owner == null)
+                            return false;
+                    }
+
+                    return true;
+                }
+            }
+
+            private bool tryMap(KeyDownEvent e, out char c, out bool altGr)
+            {
+                altGr = false;
+                bool capsLock = capsLockEnabled;
+                KeyboardLayout layout = keyboardLayout.Value;
+                if (layout != KeyboardLayout.System || engine.Polyglot)
+                {
+                    // Polyglot consumes physical keys here; its characters come from text input.
+                    if (layout == KeyboardLayout.System)
+                        layout = KeyboardLayout.Qwerty;
+                    return KeyCharMap.TryMapKeycap(e.Key, layout, e.ShiftPressed, engine.Literate, capsLock, out c);
+                }
+
+                char? character = systemKeyboard?.Resolve(e.Key, e.ShiftPressed, capsLock, false);
+                if (!e.SuperPressed && e.IsPressed(Key.AltRight))
+                {
+                    // SDL falls back to the base legend when there is no AltGr mapping.
+                    char? alternate = systemKeyboard?.Resolve(e.Key, e.ShiftPressed, capsLock, true);
+                    altGr = alternate != null && alternate != character;
+                    if (altGr)
+                        character = alternate;
+                }
+
+                return SystemKeyCharMap.TryMap(character, systemKeyboard?.Resolve(e.Key, false, false, altGr), engine.Literate, out c);
+            }
+
 
             /// <summary>
             /// Whether Caps Lock is currently ON, or false wherever that cannot be read.
@@ -982,6 +1038,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 base.LoadComplete();
                 rulesetInput = this.FindClosestParent<TypeBeatInputManager>();
 
+                if (systemKeyboard == null && host != null && drawableRuleset?.ReplayScore == null)
+                    systemKeyboard = ownedSystemKeyboard = new SystemKeyboardLayout(host);
+
                 if (engine.Polyglot)
                     activateTextInput();
             }
@@ -1040,6 +1099,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             protected override void Dispose(bool isDisposing)
             {
+                ownedSystemKeyboard?.Dispose();
                 deactivateTextInput();
                 base.Dispose(isDisposing);
             }
@@ -1093,6 +1153,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             protected override bool OnKeyDown(KeyDownEvent e)
             {
+                if (keyboardLayout.Value == KeyboardLayout.System
+                    && (!hasGameplayFocus || drawableRuleset?.ReplayScore != null || drawableRuleset?.IsPaused.Value == true))
+                    return false;
+
+                bool canType = tryMap(e, out char typedCharacter, out bool altGr);
+                if (altGr && !canType)
+                    return true;
+
                 // POLYGLOT (backlog 331): while an IME composition is open, the keys that edit it are the
                 // IME's (a backspace shortens the composition, a space converts it, enter commits it), so
                 // the engine sees none of them. Swallowed, so none reaches a global binding either.
@@ -1108,6 +1176,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 var gesture = TypeBeatInputManager.ResolveGesture(e, rulesetInput?.CurrentGestureBindings
                                                                     ?? (fallbackBindings ??= new TypeBeatRuleset().GetDefaultKeyBindings()));
 
+                // AltGr is character input, including Windows' synthetic Ctrl; it must not
+                // accidentally invoke a recovery gesture bound to Ctrl+Alt plus this key.
+                if (altGr)
+                    gesture = null;
+
                 // TYPING ALWAYS WINS. A gesture rebound onto a bare (or shifted) typeable key is
                 // shadowed for as long as the key would type, and types. Nothing else is survivable:
                 // the whole lyric surface is typeable, so a letter that silently stopped typing
@@ -1115,7 +1188,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // types, so no modifier chord is ever shadowed.
                 if (gesture != null
                     && !e.ControlPressed && !e.AltPressed && !e.SuperPressed
-                    && KeyCharMap.TryMapKeycap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out _))
+                    && canType)
                 {
                     gesture = null;
                 }
@@ -1125,7 +1198,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // modifier: the two recovery gestures are chorded with it there by default
                 // (TypeBeatRuleset.RecoveryGestureModifier), so leaving it out would have every
                 // OTHER Command chord fall through to the typing path and land in the lyric.
-                if ((e.ControlPressed || e.AltPressed || e.SuperPressed) && gesture == null)
+                if ((e.ControlPressed || e.AltPressed || e.SuperPressed) && gesture == null && !altGr)
                     return false;
 
                 // Millisecond-quantised keystroke time: what the engine judges at, what gets
@@ -1293,10 +1366,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // rule needs to be reachable at all: without it a letter never gets past this
                     // block, however the engine is configured.
                     if (engine.NewlineOnTypedLetter && !e.Repeat
-                        && KeyCharMap.TryMapKeycap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out char typedThrough)
-                        && engine.ProcessKey(typedThrough, time))
+                        && canType
+                        && engine.ProcessKey(typedCharacter, time))
                     {
-                        drawableRuleset?.RecordTypingInput(typedThrough, time);
+                        drawableRuleset?.RecordTypingInput(typedCharacter, time);
                         return true;
                     }
 
@@ -1323,7 +1396,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         return true;
                     }
 
-                    return KeyCharMap.TryMapKeycap(e.Key, keyboardLayout.Value, e.ShiftPressed, true, capsLockEnabled, out _);
+                    KeyboardLayout layout = keyboardLayout.Value == KeyboardLayout.System ? KeyboardLayout.Qwerty : keyboardLayout.Value;
+                    return KeyCharMap.TryMapKeycap(e.Key, layout, e.ShiftPressed, true, capsLockEnabled, out _);
                 }
 
                 // Pass Shift AND the Caps Lock toggle through so either route to a capital works,
@@ -1333,7 +1407,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // opens for the same mod, and ONLY for it: without it a comma key stays inert (no
                 // wrong-key combo break for a habitual comma) and Shift+digit still produces the
                 // digit, exactly as before.
-                if (KeyCharMap.TryMapKeycap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out char c))
+                if (canType)
                 {
                     // The framework's own auto-repeat is discarded outright: one judgement per
                     // physical press, never a machine-gun run at the keyboard's repeat rate.
@@ -1345,8 +1419,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         // normally" is the whole rule.
                         collapseSelection(time);
 
-                        if (engine.ProcessKey(c, time))
-                            drawableRuleset?.RecordTypingInput(c, time);
+                        if (engine.ProcessKey(typedCharacter, time))
+                            drawableRuleset?.RecordTypingInput(typedCharacter, time);
                     }
 
                     return true;

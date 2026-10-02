@@ -43,7 +43,7 @@ namespace typebeat.Game.Input
 
         protected override string GetReadableKey(InputKey key)
         {
-            if (layout.Value != KeyboardLayout.Qwerty && key >= InputKey.A && key <= InputKey.Z)
+            if (layout.Value is KeyboardLayout.Qwertz or KeyboardLayout.Azerty && key >= InputKey.A && key <= InputKey.Z)
                 return key.ToString();
 
             return host.GetReadableString(new KeyCombination(KeycapLayout.ToPhysical(key, layout.Value)));

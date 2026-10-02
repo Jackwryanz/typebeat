@@ -87,7 +87,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsItemV2(new FormEnumDropdown<KeyboardLayout>
                 {
                     Caption = "Keyboard layout",
-                    HintText = "The letters printed on your keys. Typing and every keyboard shortcut follow them.",
+                    HintText = "Presets follow keycaps. System uses your OS layout for direct typing (SDL3); shortcuts keep physical positions and show OS key names. Dead-key composition and IME require Polyglot.",
                     Current = keyboardLayout ?? new Bindable<KeyboardLayout>(),
                 }),
                 new SettingsItemV2(new FormCheckBox

@@ -21,6 +21,8 @@ namespace typebeat.Game.Input
     /// (see <see cref="KeycapKeyRewriter"/>). The punctuation and digit rows do not move here; what
     /// they PRODUCE when typed is the typing map's business (<c>KeyCharMap</c>), which reads the
     /// physical position back through <see cref="ToPhysical(Key, KeyboardLayout)"/>.</para>
+    /// <para>System is the identity: arbitrary OS layouts cannot use the preset swap tables.
+    /// Its shortcuts stay physical and the platform provider names their actual keycaps.</para>
     /// </summary>
     public static class KeycapLayout
     {

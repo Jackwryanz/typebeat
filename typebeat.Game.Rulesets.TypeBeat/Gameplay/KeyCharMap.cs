@@ -69,6 +69,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         // false, which is exactly the pre-Caps-Lock, Shift-only behaviour.
         public static bool TryMap(Key key, KeyboardLayout layout, bool shift, bool punctuation, bool capsLock, out char c)
         {
+            // System characters belong to the OS resolver, never a preset fallback.
+            if (layout == KeyboardLayout.System)
+            {
+                c = default;
+                return false;
+            }
+
             // Checked FIRST so a shifted digit can produce its mark ('!' on 1, '(' on 9, ')' on 0);
             // unshifted digits fall straight through to the digit below. Caps Lock IS passed in,
             // because whether it shifts a digit-row or punctuation key is a property of the LAYOUT

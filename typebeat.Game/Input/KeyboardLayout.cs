@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System.ComponentModel;
+
 namespace typebeat.Game.Input
 {
     /// <summary>
@@ -11,6 +13,8 @@ namespace typebeat.Game.Input
     /// manager, which is what makes every shortcut follow the keycap; the typing map
     /// (<c>KeyCharMap</c>, in the ruleset) reads the physical position back so typed characters are
     /// unchanged.
+    /// <see cref="System"/> leaves keys at their physical positions and resolves direct typing
+    /// characters from the OS instead; shortcut names are supplied by the platform provider.
     ///
     /// <para>The member NAMES are stored (in game.ini, and formerly in the ruleset's own settings row,
     /// which <see cref="KeyboardLayoutSettingCarry"/> moves across once), so they must never be renamed.</para>
@@ -31,6 +35,13 @@ namespace typebeat.Game.Input
         /// French: A↔Q and Z↔W are swapped relative to QWERTY, M sits on the QWERTY semicolon
         /// position, and the QWERTY M position carries ',' (outside the typeable surface).
         /// </summary>
-        Azerty
+        Azerty,
+
+        /// <summary>
+        /// Resolve direct typing characters using the active operating-system layout.
+        /// Shortcuts retain physical positions; their displayed names follow the OS.
+        /// </summary>
+        [Description("System keyboard layout")]
+        System
     }
 }
