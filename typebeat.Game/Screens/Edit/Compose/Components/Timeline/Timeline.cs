@@ -169,7 +169,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
                         {
                             RelativeSizeAxes = Axes.Both,
                             Masking = true,
-                            Child = waveform = new WaveformGraph
+                            Child = waveform = new TimelineWaveformGraph
                             {
                                 RelativeSizeAxes = Axes.Both,
                                 // Scalings happen about the graph's VERTICAL CENTRE, because that is where

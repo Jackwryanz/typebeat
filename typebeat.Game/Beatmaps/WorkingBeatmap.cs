@@ -54,6 +54,7 @@ namespace typebeat.Game.Beatmaps
 
         private Track track; // track is not Lazy as we allow transferring and loading multiple times.
         private Waveform waveform; // waveform is also not Lazy as the track may change.
+        private string waveformSource;
 
         protected WorkingBeatmap(BeatmapInfo beatmapInfo, AudioManager audioManager)
         {
@@ -69,6 +70,13 @@ namespace typebeat.Game.Beatmaps
         #region Resource getters
 
         protected virtual Waveform GetWaveform() => new Waveform(null);
+
+        /// <summary>
+        /// Identifies the audio DATA <see cref="GetWaveform"/> reads, so a track reload that plays the
+        /// same data can keep the waveform it already decoded (see <see cref="LoadTrack"/>). Null, the
+        /// default, means unknown, and every reload then decodes again.
+        /// </summary>
+        protected virtual string WaveformSource => null;
 
         protected virtual Storyboard GetStoryboard() => new Storyboard
         {
@@ -119,9 +127,17 @@ namespace typebeat.Game.Beatmaps
         {
             track = GetBeatmapTrack() ?? GetVirtualTrack(1000);
 
-            // the track may have changed, recycle the current waveform.
-            waveform?.Dispose();
-            waveform = null;
+            // the track may have changed, recycle the current waveform. Unless it was read from the very
+            // data the new track plays: the map's audio gain rebuilds the track from the same file (it
+            // scales what the track plays, never the file), and decoding the whole song again for that
+            // produced an identical waveform at the cost of a full decode on every committed gain.
+            string source = WaveformSource;
+
+            if (waveform == null || source == null || source != waveformSource)
+            {
+                waveform?.Dispose();
+                waveform = null;
+            }
 
             return track;
         }
@@ -196,7 +212,19 @@ namespace typebeat.Game.Beatmaps
 
         #region Waveform
 
-        public Waveform Waveform => waveform ??= GetWaveform();
+        public Waveform Waveform
+        {
+            get
+            {
+                if (waveform == null)
+                {
+                    waveformSource = WaveformSource;
+                    waveform = GetWaveform();
+                }
+
+                return waveform;
+            }
+        }
 
         #endregion
 
