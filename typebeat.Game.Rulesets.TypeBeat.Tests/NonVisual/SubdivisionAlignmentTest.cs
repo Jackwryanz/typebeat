@@ -181,6 +181,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(engine(OverdoneLine(), true).PlayheadCountablePosition(time), Is.EqualTo(alignedCount), "built aligned");
         }
 
+        [Test]
+        public void TheTargetEraRaisesItsChangeEventOnARealChangeOnly()
+        {
+            // The lyric stage re-lays its pace bands on this event, the same shape as the grouping
+            // switch (AuthoredSyllablesEraTest), because the bands are laid from the cells' targets.
+            var e = engine(OverdoneLine(), true);
+            int flips = 0;
+            e.AlignSubdivisionTargetsChanged += () => flips++;
+            var alignedBands = UnderlinePace.BuildRelativeBands(e.Lines);
+
+            ReplayEngineFeed.Apply(e, TypeBeatReplayFrame.CreateConfigFrame(0, true));
+            Assert.That(e.AlignSubdivisionTargets, Is.False, "a CONFIG frame alone is a replay recorded before the era");
+            Assert.That(UnderlinePace.BuildRelativeBands(e.Lines), Is.Not.EqualTo(alignedBands), "the bands follow the target era");
+
+            ReplayEngineFeed.Apply(e, TypeBeatReplayFrame.CreateExtendedConfigFrame(0, alignSubdivisionTargets: true));
+            Assert.That(e.AlignSubdivisionTargets, Is.True);
+            Assert.That(UnderlinePace.BuildRelativeBands(e.Lines), Is.EqualTo(alignedBands));
+
+            ReplayEngineFeed.Apply(e, TypeBeatReplayFrame.CreateExtendedConfigFrame(0, alignSubdivisionTargets: true));
+            Assert.That(flips, Is.EqualTo(2), "the change event fires on a real change only");
+
+            ReplayEngineFeed.ClearExtendedEras(e);
+            Assert.That(e.AlignSubdivisionTargets, Is.False);
+            Assert.That(flips, Is.EqualTo(3));
+        }
+
         private static int countableAtOrBefore(TypingEngine e, double time)
             => e.Lines.SelectMany(l => l.Cells).Count(c => c.IsCountable && c.TargetTime <= time);
 

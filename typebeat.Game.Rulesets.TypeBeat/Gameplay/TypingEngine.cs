@@ -1261,8 +1261,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // a swap of the targets that left it on the old era would measure the cap (and
                 // RushCapCostsAccuracy's Meh) against targets this run is not judged on.
                 rebuildCountableTargets();
+                AlignSubdivisionTargetsChanged?.Invoke();
             }
         }
+
+        /// <summary>
+        /// Raised whenever <see cref="AlignSubdivisionTargets"/> actually changes value, which outside
+        /// construction is only a replay's header frames re-selecting the target era (the watch path
+        /// attaching or detaching a stored run). Read by the lyric stack to re-lay the pace bands it
+        /// drew from the other era's targets, exactly as <see cref="AuthoredSyllablesOnlyChanged"/>.
+        /// </summary>
+        public event Action? AlignSubdivisionTargetsChanged;
 
         /// <summary>
         /// THE RUSH CAP COSTS ACCURACY, NOT COMBO (backlog 347). With this set, a press that leaves
