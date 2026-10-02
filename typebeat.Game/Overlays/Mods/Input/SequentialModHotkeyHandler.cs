@@ -42,9 +42,9 @@ namespace typebeat.Game.Overlays.Mods.Input
             toggleKeys = keys;
         }
 
-        public bool HandleModHotkeyPressed(KeyDownEvent e, IEnumerable<ModState> availableMods)
+        public bool HandleModHotkeyPressed(KeyDownEvent e, Key physicalKey, IEnumerable<ModState> availableMods)
         {
-            int index = Array.IndexOf(toggleKeys, e.Key);
+            int index = Array.IndexOf(toggleKeys, physicalKey);
             if (index < 0)
                 return false;
 

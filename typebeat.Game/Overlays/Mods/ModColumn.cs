@@ -17,6 +17,7 @@ using osu.Framework.Input.Events;
 using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.UserInterface;
+using typebeat.Game.Input;
 using typebeat.Game.Localisation;
 using typebeat.Game.Overlays.Mods.Input;
 using typebeat.Game.Rulesets.Mods;
@@ -64,6 +65,7 @@ namespace typebeat.Game.Overlays.Mods
         private readonly ToggleAllCheckbox? toggleAllCheckbox;
 
         private Bindable<ModSelectHotkeyStyle> hotkeyStyle = null!;
+        private Bindable<KeyboardLayout> keyboardLayout = null!;
         private IModHotkeyHandler hotkeyHandler = null!;
 
         private Task? latestLoadTask;
@@ -129,6 +131,7 @@ namespace typebeat.Game.Overlays.Mods
             }
 
             hotkeyStyle = configManager.GetBindable<ModSelectHotkeyStyle>(OsuSetting.ModSelectHotkeyStyle);
+            keyboardLayout = configManager.GetBindable<KeyboardLayout>(OsuSetting.KeyboardLayout);
         }
 
         protected override void LoadComplete()
@@ -348,7 +351,8 @@ namespace typebeat.Game.Overlays.Mods
             if (e.ControlPressed || e.AltPressed || e.SuperPressed || e.Repeat)
                 return false;
 
-            return hotkeyHandler.HandleModHotkeyPressed(e, availableMods);
+            // The root input manager hands over the KEYCAP key; the hotkey grid is positional.
+            return hotkeyHandler.HandleModHotkeyPressed(e, KeycapLayout.ToPhysical(e.Key, keyboardLayout.Value), availableMods);
         }
 
         #endregion

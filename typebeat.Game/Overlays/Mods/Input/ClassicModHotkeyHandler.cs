@@ -37,9 +37,9 @@ namespace typebeat.Game.Overlays.Mods.Input
             this.allowIncompatibleSelection = allowIncompatibleSelection;
         }
 
-        public bool HandleModHotkeyPressed(KeyDownEvent e, IEnumerable<ModState> availableMods)
+        public bool HandleModHotkeyPressed(KeyDownEvent e, Key physicalKey, IEnumerable<ModState> availableMods)
         {
-            if (!mod_type_lookup.TryGetValue(e.Key, out var typesToMatch))
+            if (!mod_type_lookup.TryGetValue(physicalKey, out var typesToMatch))
                 return false;
 
             var matchingMods = availableMods.Where(modState => matches(modState, typesToMatch) && modState.Visible).ToArray();

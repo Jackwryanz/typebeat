@@ -20,6 +20,7 @@ using osu.Framework.Platform;
 using osu.Framework.Timing;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Configuration;
+using typebeat.Game.Input;
 using typebeat.Game.Rulesets.Objects.Drawables;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
@@ -163,7 +164,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private void load(TypeBeatRulesetConfigManager? config, IBindable<WorkingBeatmap>? beatmap, OsuConfigManager? osuConfig)
         {
             config?.BindWith(TypeBeatRulesetSetting.LyricOffsetMs, lyricOffset);
-            config?.BindWith(TypeBeatRulesetSetting.KeyboardLayout, keyboardLayout);
+            // Game-wide since backlog 371 (the root input manager rewrites keys by it), so it is read
+            // from the game config; the key handler below must read keys back with the same value.
+            osuConfig?.BindWith(OsuSetting.KeyboardLayout, keyboardLayout);
 
             // The wrong-input model is fixed for the play and is no longer a setting (backlog 107):
             // typing wrong chars through is the default, and TypeBeatModGatekeeper is the only thing
@@ -1112,7 +1115,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // types, so no modifier chord is ever shadowed.
                 if (gesture != null
                     && !e.ControlPressed && !e.AltPressed && !e.SuperPressed
-                    && KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out _))
+                    && KeyCharMap.TryMapKeycap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out _))
                 {
                     gesture = null;
                 }
@@ -1290,7 +1293,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // rule needs to be reachable at all: without it a letter never gets past this
                     // block, however the engine is configured.
                     if (engine.NewlineOnTypedLetter && !e.Repeat
-                        && KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out char typedThrough)
+                        && KeyCharMap.TryMapKeycap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out char typedThrough)
                         && engine.ProcessKey(typedThrough, time))
                     {
                         drawableRuleset?.RecordTypingInput(typedThrough, time);
@@ -1320,7 +1323,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         return true;
                     }
 
-                    return KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, true, capsLockEnabled, out _);
+                    return KeyCharMap.TryMapKeycap(e.Key, keyboardLayout.Value, e.ShiftPressed, true, capsLockEnabled, out _);
                 }
 
                 // Pass Shift AND the Caps Lock toggle through so either route to a capital works,
@@ -1330,7 +1333,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // opens for the same mod, and ONLY for it: without it a comma key stays inert (no
                 // wrong-key combo break for a habitual comma) and Shift+digit still produces the
                 // digit, exactly as before.
-                if (KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out char c))
+                if (KeyCharMap.TryMapKeycap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out char c))
                 {
                     // The framework's own auto-repeat is discarded outright: one judgement per
                     // physical press, never a machine-gun run at the keyboard's repeat rate.

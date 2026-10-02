@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using osu.Framework.Input.Events;
+using osuTK.Input;
 
 namespace typebeat.Game.Overlays.Mods.Input
 {
@@ -12,6 +13,6 @@ namespace typebeat.Game.Overlays.Mods.Input
     /// </summary>
     public class NoopModHotkeyHandler : IModHotkeyHandler
     {
-        public bool HandleModHotkeyPressed(KeyDownEvent e, IEnumerable<ModState> availableMods) => false;
+        public bool HandleModHotkeyPressed(KeyDownEvent e, Key physicalKey, IEnumerable<ModState> availableMods) => false;
     }
 }
